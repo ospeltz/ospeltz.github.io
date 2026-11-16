@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PointLog">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#c2410c">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>PointLog</title>
+<style>
+:root{--bg:#edf1f3;--card:#fff;--text:#1b2a33;--muted:#566873;--line:#d3dbe0;--accent:#c2410c;--on-accent:#fff;--good:#1a7f4b;--warn:#b7791f;--bad:#b42318;--danger:#b42318;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px)}
+@media (prefers-color-scheme:dark){:root{--bg:#12181c;--card:#1b242a;--text:#e6ecef;--muted:#93a3ad;--line:#2e3b43;--accent:#ff8a4c;--on-accent:#2a1405;--good:#4ade80;--warn:#fbbf24;--bad:#f97066;--danger:#f97066;color-scheme:dark}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;justify-content:space-between;align-items:baseline;max-width:640px;margin:0 auto;padding:14px 18px 6px}
+h1{font-size:1.3rem;margin:0}
+#count{color:var(--muted);font-size:.9rem}
+main{max-width:640px;margin:0 auto;padding:8px 18px calc(96px + env(safe-area-inset-bottom,0px))}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.gps{background:var(--card);border:1.5px solid var(--line);border-left:10px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:2px 14px;align-items:baseline;color:var(--muted)}
+.gps strong{font-size:1.7rem;color:var(--text)}
+.gps.good{border-left-color:var(--good)}.gps.ok{border-left-color:var(--warn)}.gps.poor{border-left-color:var(--bad)}
+.coords{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9rem}
+.field{display:block;margin-bottom:14px}
+.field>span{display:block;font-weight:600;font-size:.92rem;margin-bottom:4px}
+input[type=text],input[type=number],select,textarea{width:100%;font:inherit;padding:12px;border:1.5px solid var(--line);border-radius:8px;background:var(--card);color:var(--text)}
+.field.check{display:flex;align-items:center;gap:12px}
+.field.check>span{margin:0;order:2}
+.field.check input{width:26px;height:26px;accent-color:var(--accent)}
+.btn{display:block;width:100%;margin:0 0 12px;padding:16px;font:700 1.1rem system-ui,sans-serif;border:0;border-radius:10px;background:var(--accent);color:var(--on-accent);cursor:pointer}
+.btn:disabled{opacity:.6}
+#logbtn{padding:24px;font-size:1.35rem;margin-top:6px}
+.secondary{background:transparent;color:var(--accent);border:2px solid var(--accent)}
+.danger-btn{background:transparent;color:var(--danger);border:2px solid var(--danger)}
+.link{background:none;border:0;padding:8px 0;margin-right:16px;font:inherit;color:var(--accent);text-decoration:underline;cursor:pointer}
+.link:disabled{opacity:.4;text-decoration:none}
+.link.danger{color:var(--danger)}
+.rec,.frow{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.frow{display:grid;gap:8px}
+.rhead{display:flex;justify-content:space-between;align-items:center}
+.rhead time{font-weight:600}
+.rhead .link{margin:0}
+.kv span{font-weight:600;margin-right:6px}
+.kv span::after{content:":"}
+.hint{color:var(--muted)}
+.empty{color:var(--muted);text-align:center;padding:28px 0}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{flex:1;padding:15px 0 14px;border:0;background:none;font:inherit;font-size:.95rem;color:var(--muted);cursor:pointer}
+nav button[aria-current=true]{color:var(--accent);font-weight:700;box-shadow:inset 0 3px 0 var(--accent)}
+#toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);max-width:90%;padding:10px 16px;border-radius:999px;background:var(--text);color:var(--bg);text-align:center;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.on{opacity:1}
+@media (prefers-reduced-motion:reduce){#toast{transition:none}}
+</style>
+</head>
+<body>
+<header><h1>PointLog</h1><span id="count"></span></header>
+<main id="view"></main>
+<nav>
+<button data-v="log">Log</button>
+<button data-v="records">Points</button>
+<button data-v="form">Fields</button>
+<button data-v="export">Export</button>
+</nav>
+<div id="toast" role="status"></div>
+<script>
+"use strict";
+const $=s=>document.querySelector(s);
+const el=(tag,attrs={},...kids)=>{const e=document.createElement(tag);
+  for(const[k,v]of Object.entries(attrs)){
+    if(k==="class")e.className=v;
+    else if(k.startsWith("on"))e.addEventListener(k.slice(2),v);
+    else if(k==="value"||k==="disabled")e[k]=v;
+    else e.setAttribute(k,v)}
+  e.append(...kids.flat().filter(c=>c!=null&&c!==false));return e};
+const mount=(...n)=>$("#view").replaceChildren(...n.flat().filter(Boolean));
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+let tt;const toast=m=>{const t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(tt);tt=setTimeout(()=>t.classList.remove("on"),2600)};
+
+/* ---------- storage (IndexedDB) ---------- */
+let db;
+const openDb=()=>new Promise((ok,no)=>{const r=indexedDB.open("pointlog",1);
+  r.onupgradeneeded=()=>{r.result.createObjectStore("records",{keyPath:"id",autoIncrement:true});r.result.createObjectStore("meta")};
+  r.onsuccess=()=>{db=r.result;ok()};r.onerror=()=>no(r.error)});
+const tx=(s,m="readonly")=>db.transaction(s,m).objectStore(s);
+const p=r=>new Promise((ok,no)=>{r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
+const saveFields=()=>p(tx("meta","readwrite").put(fields,"fields"));
+const updateCount=async()=>{const n=await p(tx("records").count());$("#count").textContent=n+(n===1?" point":" points")};
+
+/* ---------- state ---------- */
+const TYPES={text:"Short text",note:"Long note",number:"Number",choice:"Choice list",checkbox:"Yes / no"};
+let fields=[],inputs={},fix=null,watchId=null,gpsMsg="Searching for GPS…";
+
+/* ---------- GPS ---------- */
+function startGps(){
+  if(!navigator.geolocation){gpsMsg="This browser can’t read your location.";return}
+  if(watchId!=null)return;
+  watchId=navigator.geolocation.watchPosition(
+    pos=>{fix=pos;gpsMsg="";paintGps()},
+    e=>{gpsMsg=e.code===1?"Location is blocked. Allow it in Settings › Privacy & Security › Location Services.":"Searching for GPS…";paintGps()},
+    {enableHighAccuracy:true,maximumAge:5000,timeout:30000})}
+function stopGps(){if(watchId!=null)navigator.geolocation.clearWatch(watchId);watchId=null}
+function paintGps(){
+  const g=$("#gps");if(!g)return;
+  if(!fix){g.className="gps";g.textContent=gpsMsg;return}
+  const c=fix.coords,acc=Math.round(c.accuracy),age=Math.round((Date.now()-fix.timestamp)/1000);
+  g.className="gps "+(acc<=10?"good":acc<=30?"ok":"poor");
+  g.replaceChildren(el("strong",{},"±"+acc+" m"),el("span",{class:"coords"},c.latitude.toFixed(6)+", "+c.longitude.toFixed(6)),el("span",{},age<2?"just now":age+" s ago"))}
+setInterval(paintGps,1000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&$("#gps")){stopGps();startGps()}});
+
+/* ---------- Log view ---------- */
+function fieldInput(f){
+  let i;
+  if(f.type==="note")i=el("textarea",{rows:"3"});
+  else if(f.type==="number")i=el("input",{type:"number",inputmode:"decimal",step:"any"});
+  else if(f.type==="checkbox")i=el("input",{type:"checkbox"});
+  else if(f.type==="choice")i=el("select",{},el("option",{value:""},"—"),...(f.options||[]).map(o=>el("option",{value:o},o)));
+  else i=el("input",{type:"text"});
+  inputs[f.id]=i;
+  return el("label",{class:f.type==="checkbox"?"field check":"field"},el("span",{},f.label),i)}
+function renderLog(){
+  inputs={};
+  mount(el("div",{id:"gps",class:"gps"},gpsMsg),...fields.map(fieldInput),
+    el("button",{id:"logbtn",class:"btn",onclick:logPoint},"Log point"));
+  paintGps()}
+async function logPoint(){
+  const b=$("#logbtn");b.disabled=true;
+  try{
+    if(!fix||Date.now()-fix.timestamp>15000){
+      b.textContent="Getting GPS fix…";
+      fix=await new Promise((ok,no)=>navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:true,timeout:20000,maximumAge:0}))}
+    const c=fix.coords,data={};
+    for(const f of fields){const i=inputs[f.id];
+      data[f.label]=f.type==="checkbox"?i.checked:f.type==="number"?(i.value===""?"":Number(i.value)):i.value.trim()}
+    await p(tx("records","readwrite").add({ts:new Date().toISOString(),lat:c.latitude,lon:c.longitude,acc:c.accuracy,alt:c.altitude,data}));
+    toast("Logged, ±"+Math.round(c.accuracy)+" m");
+    await updateCount();renderLog();
+  }catch(e){
+    toast(e&&e.code===1?"Location is blocked for PointLog.":"No GPS fix yet. Try again with a clear view of the sky.");
+    b.disabled=false;b.textContent="Log point"}}
+
+/* ---------- Points view ---------- */
+async function renderRecords(){
+  const rs=(await p(tx("records").getAll())).reverse();
+  mount(rs.length?null:el("p",{class:"empty"},"No points yet. Open Log and tap Log point."),
+    rs.map(r=>el("article",{class:"rec"},
+      el("div",{class:"rhead"},el("time",{},new Date(r.ts).toLocaleString()),
+        el("button",{class:"link danger",onclick:async()=>{if(confirm("Delete this point?")){await p(tx("records","readwrite").delete(r.id));await updateCount();renderRecords()}}},"Delete")),
+      el("div",{class:"coords"},r.lat.toFixed(6)+", "+r.lon.toFixed(6)+" (±"+Math.round(r.acc)+" m)"),
+      Object.entries(r.data).filter(([,v])=>v!=="").map(([k,v])=>el("div",{class:"kv"},el("span",{},k),v===true?"yes":v===false?"no":String(v))),
+      el("a",{class:"link",href:"https://maps.apple.com/?ll="+r.lat+","+r.lon},"Open in Maps"))))}
+
+/* ---------- Fields view ---------- */
+function move(n,d){[fields[n],fields[n+d]]=[fields[n+d],fields[n]];saveFields();renderForm()}
+function renderForm(){
+  mount(el("p",{class:"hint"},"Choose what you record with each point. Saved points keep the field names they were logged with."),
+    fields.map((f,n)=>{
+      const lab=el("input",{type:"text",value:f.label,"aria-label":"Field name"});
+      lab.addEventListener("change",()=>{f.label=lab.value.trim()||"Untitled";saveFields()});
+      const sel=el("select",{"aria-label":"Field type"},Object.entries(TYPES).map(([k,t])=>el("option",{value:k},t)));
+      sel.value=f.type;
+      sel.addEventListener("change",()=>{f.type=sel.value;saveFields();renderForm()});
+      let opt=null;
+      if(f.type==="choice"){
+        opt=el("input",{type:"text",value:(f.options||[]).join(", "),placeholder:"Choices, separated by commas","aria-label":"Choices"});
+        opt.addEventListener("change",()=>{f.options=opt.value.split(",").map(s=>s.trim()).filter(Boolean);saveFields()})}
+      return el("div",{class:"frow"},lab,sel,opt,el("div",{},
+        el("button",{class:"link",disabled:n===0,onclick:()=>move(n,-1)},"Move up"),
+        el("button",{class:"link",disabled:n===fields.length-1,onclick:()=>move(n,1)},"Move down"),
+        el("button",{class:"link danger",onclick:()=>{if(confirm("Remove “"+f.label+"”? Saved points keep their data.")){fields.splice(n,1);saveFields();renderForm()}}},"Remove")))}),
+    el("button",{class:"btn secondary",onclick:()=>{fields.push({id:uid(),label:"New field",type:"text"});saveFields();renderForm()}},"Add field"))}
+
+/* ---------- Export view ---------- */
+async function exportFile(kind){
+  const rs=await p(tx("records").getAll());
+  if(!rs.length){toast("No points to export yet.");return}
+  const day=new Date().toISOString().slice(0,10);let text,name,type;
+  if(kind==="csv"){
+    const labels=[...new Set(rs.flatMap(r=>Object.keys(r.data)))];
+    const q=v=>{v=v==null?"":String(v);return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
+    const rows=[["timestamp","latitude","longitude","accuracy_m","altitude_m",...labels],
+      ...rs.map(r=>[r.ts,r.lat,r.lon,r.acc,r.alt,...labels.map(l=>r.data[l])])];
+    text="\ufeff"+rows.map(r=>r.map(q).join(",")).join("\r\n");name="pointlog-"+day+".csv";type="text/csv"}
+  else{
+    text=JSON.stringify({type:"FeatureCollection",features:rs.map(r=>({type:"Feature",
+      geometry:{type:"Point",coordinates:r.alt!=null?[r.lon,r.lat,r.alt]:[r.lon,r.lat]},
+      properties:{timestamp:r.ts,accuracy_m:r.acc,...r.data}}))},null,2);
+    name="pointlog-"+day+".geojson";type="application/json"}
+  const file=new File([text],name,{type});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file]});return}catch(e){if(e.name==="AbortError")return}}
+  const a=el("a",{href:URL.createObjectURL(file),download:name});
+  document.body.append(a);a.click();a.remove()}
+async function renderExport(){
+  const n=await p(tx("records").count());
+  mount(el("p",{class:"hint"},n+(n===1?" point is":" points are")+" stored on this phone. Export regularly: clearing Safari data or deleting the app erases them."),
+    el("button",{class:"btn",onclick:()=>exportFile("csv")},"Export CSV"),
+    el("button",{class:"btn",onclick:()=>exportFile("geojson")},"Export GeoJSON"),
+    el("button",{class:"btn danger-btn",onclick:async()=>{if(n&&confirm("Delete all "+n+" points? This can’t be undone.")){await p(tx("records","readwrite").clear());await updateCount();renderExport()}}},"Delete all points"))}
+
+/* ---------- navigation + startup ---------- */
+function show(v){
+  document.querySelectorAll("nav button").forEach(b=>b.setAttribute("aria-current",b.dataset.v===v));
+  if(v==="log"){startGps();renderLog()}
+  else{stopGps();({records:renderRecords,form:renderForm,export:renderExport})[v]()}
+  scrollTo(0,0)}
+(async()=>{
+  await openDb();
+  fields=await p(tx("meta").get("fields"));
+  if(!fields){fields=[{id:uid(),label:"Note",type:"text"}];await saveFields()}
+  document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>show(b.dataset.v)));
+  await updateCount();show("log");
+  if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+  if("serviceWorker"in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
+})().catch(e=>{$("#view").textContent="Storage is unavailable: "+e.message});
+</script>
+</body>
+</html>
