@@ -32,6 +32,12 @@ input[type=text],input[type=number],select,textarea{width:100%;font:inherit;padd
 .field.check{display:flex;align-items:center;gap:12px}
 .field.check>span{margin:0;order:2}
 .field.check input{width:26px;height:26px;accent-color:var(--accent)}
+button{touch-action:manipulation}
+.counter{display:flex;align-items:center;gap:12px}
+.counter output{min-width:3ch;text-align:center;font-size:2rem;font-weight:700;font-variant-numeric:tabular-nums}
+.cplus{flex:1;height:76px;border:0;border-radius:12px;background:var(--accent);color:var(--on-accent);font:700 2.6rem system-ui,sans-serif;cursor:pointer}
+.cplus:active{filter:brightness(.92)}
+.cminus{width:52px;height:52px;border:2px solid var(--line);border-radius:10px;background:var(--card);color:var(--text);font:700 1.6rem system-ui,sans-serif;cursor:pointer}
 .btn{display:block;width:100%;margin:0 0 12px;padding:16px;font:700 1.1rem system-ui,sans-serif;border:0;border-radius:10px;background:var(--accent);color:var(--on-accent);cursor:pointer}
 .btn:disabled{opacity:.6}
 #logbtn{padding:24px;font-size:1.35rem;margin-top:6px}
@@ -88,12 +94,13 @@ const openDb=()=>new Promise((ok,no)=>{const r=indexedDB.open("pointlog",1);
   r.onsuccess=()=>{db=r.result;ok()};r.onerror=()=>no(r.error)});
 const tx=(s,m="readonly")=>db.transaction(s,m).objectStore(s);
 const p=r=>new Promise((ok,no)=>{r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)});
-const saveFields=()=>p(tx("meta","readwrite").put(fields,"fields"));
+const saveFields=()=>p(tx("meta","readwrite").put(forms,"forms"));
+const cur=()=>forms.list.find(f=>f.id===forms.active)||forms.list[0];
 const updateCount=async()=>{const n=await p(tx("records").count());$("#count").textContent=n+(n===1?" point":" points")};
 
 /* ---------- state ---------- */
-const TYPES={text:"Short text",note:"Long note",number:"Number",choice:"Choice list",checkbox:"Yes / no"};
-let fields=[],inputs={},fix=null,watchId=null,gpsMsg="Searching for GPS…";
+const TYPES={text:"Short text",note:"Long note",number:"Number",choice:"Dropdown list",counter:"Counter",checkbox:"Yes / no"};
+let forms=null,fields=[],inputs={},fix=null,watchId=null,gpsMsg="Searching for GPS…";
 
 /* ---------- GPS ---------- */
 function startGps(){
@@ -119,13 +126,26 @@ function fieldInput(f){
   if(f.type==="note")i=el("textarea",{rows:"3"});
   else if(f.type==="number")i=el("input",{type:"number",inputmode:"decimal",step:"any"});
   else if(f.type==="checkbox")i=el("input",{type:"checkbox"});
+  else if(f.type==="counter"){
+    i=el("div",{class:"counter"});i.count=0;
+    const out=el("output",{"aria-live":"polite"},"0");
+    const set=n=>{i.count=Math.max(0,n);out.textContent=i.count};
+    i.append(
+      el("button",{type:"button",class:"cminus","aria-label":"Subtract one",onclick:()=>set(i.count-1)},"−"),
+      out,
+      el("button",{type:"button",class:"cplus","aria-label":"Add one",onclick:()=>set(i.count+1)},"+"))}
   else if(f.type==="choice")i=el("select",{},el("option",{value:""},"—"),...(f.options||[]).map(o=>el("option",{value:o},o)));
   else i=el("input",{type:"text"});
   inputs[f.id]=i;
-  return el("label",{class:f.type==="checkbox"?"field check":"field"},el("span",{},f.label),i)}
+  return el(f.type==="counter"?"div":"label",{class:f.type==="checkbox"?"field check":"field"},el("span",{},f.label),i)}
+function formPicker(after){
+  const s=el("select",{"aria-label":"Form"},forms.list.map(f=>el("option",{value:f.id},f.name)));
+  s.value=forms.active;
+  s.addEventListener("change",()=>{forms.active=s.value;fields=cur().fields;saveFields();after()});
+  return el("label",{class:"field"},el("span",{},"Form"),s)}
 function renderLog(){
   inputs={};
-  mount(el("div",{id:"gps",class:"gps"},gpsMsg),...fields.map(fieldInput),
+  mount(el("div",{id:"gps",class:"gps"},gpsMsg),forms.list.length>1?formPicker(renderLog):null,...fields.map(fieldInput),
     el("button",{id:"logbtn",class:"btn",onclick:logPoint},"Log point"));
   paintGps()}
 async function logPoint(){
@@ -136,8 +156,8 @@ async function logPoint(){
       fix=await new Promise((ok,no)=>navigator.geolocation.getCurrentPosition(ok,no,{enableHighAccuracy:true,timeout:20000,maximumAge:0}))}
     const c=fix.coords,data={};
     for(const f of fields){const i=inputs[f.id];
-      data[f.label]=f.type==="checkbox"?i.checked:f.type==="number"?(i.value===""?"":Number(i.value)):i.value.trim()}
-    await p(tx("records","readwrite").add({ts:new Date().toISOString(),lat:c.latitude,lon:c.longitude,acc:c.accuracy,alt:c.altitude,data}));
+      data[f.label]=f.type==="checkbox"?i.checked:f.type==="counter"?i.count:f.type==="number"?(i.value===""?"":Number(i.value)):i.value.trim()}
+    await p(tx("records","readwrite").add({ts:new Date().toISOString(),form:cur().name,lat:c.latitude,lon:c.longitude,acc:c.accuracy,alt:c.altitude,data}));
     toast("Logged, ±"+Math.round(c.accuracy)+" m");
     await updateCount();renderLog();
   }catch(e){
@@ -151,14 +171,30 @@ async function renderRecords(){
     rs.map(r=>el("article",{class:"rec"},
       el("div",{class:"rhead"},el("time",{},new Date(r.ts).toLocaleString()),
         el("button",{class:"link danger",onclick:async()=>{if(confirm("Delete this point?")){await p(tx("records","readwrite").delete(r.id));await updateCount();renderRecords()}}},"Delete")),
+      r.form?el("div",{class:"hint"},r.form):null,
       el("div",{class:"coords"},r.lat.toFixed(6)+", "+r.lon.toFixed(6)+" (±"+Math.round(r.acc)+" m)"),
       Object.entries(r.data).filter(([,v])=>v!=="").map(([k,v])=>el("div",{class:"kv"},el("span",{},k),v===true?"yes":v===false?"no":String(v))),
       el("a",{class:"link",href:"https://maps.apple.com/?ll="+r.lat+","+r.lon},"Open in Maps"))))}
 
 /* ---------- Fields view ---------- */
 function move(n,d){[fields[n],fields[n+d]]=[fields[n+d],fields[n]];saveFields();renderForm()}
+function newForm(){
+  const n=(prompt("Name for the new form:")||"").trim();if(!n)return;
+  const f={id:uid(),name:n,fields:[{id:uid(),label:"Note",type:"text"}]};
+  forms.list.push(f);forms.active=f.id;fields=f.fields;saveFields();renderForm()}
+function renameForm(){
+  const n=(prompt("Rename form:",cur().name)||"").trim();if(!n)return;
+  cur().name=n;saveFields();renderForm()}
+function deleteForm(){
+  const c=cur();if(!confirm("Delete the form “"+c.name+"”? Saved points keep their data."))return;
+  forms.list=forms.list.filter(f=>f!==c);forms.active=forms.list[0].id;fields=cur().fields;saveFields();renderForm()}
 function renderForm(){
-  mount(el("p",{class:"hint"},"Choose what you record with each point. Saved points keep the field names they were logged with."),
+  mount(formPicker(renderForm),
+    el("div",{},
+      el("button",{class:"link",onclick:newForm},"New form"),
+      el("button",{class:"link",onclick:renameForm},"Rename"),
+      forms.list.length>1?el("button",{class:"link danger",onclick:deleteForm},"Delete form"):null),
+    el("p",{class:"hint"},"Choose what you record with each point. Saved points keep the field names they were logged with."),
     fields.map((f,n)=>{
       const lab=el("input",{type:"text",value:f.label,"aria-label":"Field name"});
       lab.addEventListener("change",()=>{f.label=lab.value.trim()||"Untitled";saveFields()});
@@ -167,7 +203,7 @@ function renderForm(){
       sel.addEventListener("change",()=>{f.type=sel.value;saveFields();renderForm()});
       let opt=null;
       if(f.type==="choice"){
-        opt=el("input",{type:"text",value:(f.options||[]).join(", "),placeholder:"Choices, separated by commas","aria-label":"Choices"});
+        opt=el("input",{type:"text",value:(f.options||[]).join(", "),placeholder:"Dropdown options, separated by commas","aria-label":"Choices"});
         opt.addEventListener("change",()=>{f.options=opt.value.split(",").map(s=>s.trim()).filter(Boolean);saveFields()})}
       return el("div",{class:"frow"},lab,sel,opt,el("div",{},
         el("button",{class:"link",disabled:n===0,onclick:()=>move(n,-1)},"Move up"),
@@ -183,24 +219,47 @@ async function exportFile(kind){
   if(kind==="csv"){
     const labels=[...new Set(rs.flatMap(r=>Object.keys(r.data)))];
     const q=v=>{v=v==null?"":String(v);return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
-    const rows=[["timestamp","latitude","longitude","accuracy_m","altitude_m",...labels],
-      ...rs.map(r=>[r.ts,r.lat,r.lon,r.acc,r.alt,...labels.map(l=>r.data[l])])];
+    const rows=[["timestamp","form","latitude","longitude","accuracy_m","altitude_m",...labels],
+      ...rs.map(r=>[r.ts,r.form,r.lat,r.lon,r.acc,r.alt,...labels.map(l=>r.data[l])])];
     text="\ufeff"+rows.map(r=>r.map(q).join(",")).join("\r\n");name="pointlog-"+day+".csv";type="text/csv"}
   else{
     text=JSON.stringify({type:"FeatureCollection",features:rs.map(r=>({type:"Feature",
       geometry:{type:"Point",coordinates:r.alt!=null?[r.lon,r.lat,r.alt]:[r.lon,r.lat]},
-      properties:{timestamp:r.ts,accuracy_m:r.acc,...r.data}}))},null,2);
+      properties:{timestamp:r.ts,form:r.form,accuracy_m:r.acc,...r.data}}))},null,2);
     name="pointlog-"+day+".geojson";type="application/json"}
+  await deliver(text,name,type)}
+async function deliver(text,name,type){
   const file=new File([text],name,{type});
   if(navigator.canShare&&navigator.canShare({files:[file]})){
     try{await navigator.share({files:[file]});return}catch(e){if(e.name==="AbortError")return}}
   const a=el("a",{href:URL.createObjectURL(file),download:name});
   document.body.append(a);a.click();a.remove()}
+function backupForms(){
+  const day=new Date().toISOString().slice(0,10);
+  deliver(JSON.stringify({pointlog:"forms",version:1,list:forms.list},null,2),"pointlog-forms-"+day+".json","application/json")}
+function restoreForms(){
+  const inp=el("input",{type:"file",accept:"application/json,.json",style:"display:none"});
+  document.body.append(inp);
+  inp.addEventListener("change",async()=>{
+    try{
+      const d=JSON.parse(await inp.files[0].text());
+      if(d.pointlog!=="forms"||!Array.isArray(d.list)||!d.list.length)throw 0;
+      for(const f of d.list){
+        let name=String(f.name||"Restored form");
+        while(forms.list.some(x=>x.name===name))name+=" (restored)";
+        forms.list.push({id:uid(),name,fields:(Array.isArray(f.fields)?f.fields:[]).map(x=>({id:uid(),label:String(x.label||"Untitled"),type:TYPES[x.type]?x.type:"text",options:Array.isArray(x.options)?x.options.map(String):[]}))})}
+      await saveFields();toast("Restored "+d.list.length+(d.list.length===1?" form":" forms"));renderExport();
+    }catch(e){toast("That file isn’t a PointLog form backup.")}
+    inp.remove()});
+  inp.click()}
 async function renderExport(){
   const n=await p(tx("records").count());
   mount(el("p",{class:"hint"},n+(n===1?" point is":" points are")+" stored on this phone. Export regularly: clearing Safari data or deleting the app erases them."),
     el("button",{class:"btn",onclick:()=>exportFile("csv")},"Export CSV"),
     el("button",{class:"btn",onclick:()=>exportFile("geojson")},"Export GeoJSON"),
+    el("button",{class:"btn secondary",onclick:backupForms},"Back up forms"),
+    el("button",{class:"btn secondary",onclick:restoreForms},"Restore forms from backup"),
+    el("p",{class:"hint"},"A form backup holds your field setup only, not your points."),
     el("button",{class:"btn danger-btn",onclick:async()=>{if(n&&confirm("Delete all "+n+" points? This can’t be undone.")){await p(tx("records","readwrite").clear());await updateCount();renderExport()}}},"Delete all points"))}
 
 /* ---------- navigation + startup ---------- */
@@ -211,8 +270,12 @@ function show(v){
   scrollTo(0,0)}
 (async()=>{
   await openDb();
-  fields=await p(tx("meta").get("fields"));
-  if(!fields){fields=[{id:uid(),label:"Note",type:"text"}];await saveFields()}
+  forms=await p(tx("meta").get("forms"));
+  if(!forms){
+    const old=await p(tx("meta").get("fields"));
+    const first={id:uid(),name:"My form",fields:old||[{id:uid(),label:"Note",type:"text"}]};
+    forms={active:first.id,list:[first]};await saveFields()}
+  fields=cur().fields;
   document.querySelectorAll("nav button").forEach(b=>b.addEventListener("click",()=>show(b.dataset.v)));
   await updateCount();show("log");
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
