@@ -369,6 +369,29 @@
         transition: none
       }
     }
+    /* this conditionally styles when on a phone (@media) and in landscape (the max-height prevents this behavior for tablets) */
+    @media (orientation: landscape) and (max-height: 500px) {
+      main {
+        max-width: none;
+        padding-left: calc(18px + env(safe-area-inset-left,0px));
+        padding-right: calc(18px + env(safe-area-inset-right,0px))
+      }
+      /* this styles the Log tab specifically so that the fields fill up two columns while in landscape */
+      #view.log {
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:0 18px;
+        align-items:start
+      }
+      /* this keeps the gps bar and the log button independent of the columns */
+      #view.log #gps,#view.log #logbtn {
+        grid-column:1 / -1
+      }
+      nav {
+        padding-left:env(safe-area-inset-left,0px);
+        padding-right:env(safe-area-inset-right,0px)
+      }
+    }
 
     .radio-button label { display:flex; align-items:center; gap:3px; padding:2px 0 }
     .radio-button input { width:24px; height:24px; accent-color:var(--accent) }
@@ -452,7 +475,7 @@
       text: "Short text", 
       note: "Long note", 
     };
-    const DEBUG = true;
+    const DEBUG = location.hostname === "localhost";
     let forms = null, fields = [], inputs = {}, kept ={}, fix = null, watchId = null, gpsMsg = "Searching for GPS…";
 
     /* ---------- GPS ---------- */
@@ -622,7 +645,6 @@
           else if (f.type === "number") data[f.label] = (i.value === "" ? "" : Number(i.value))
           else if (f.type === "radio") data[f.label] = i.querySelector('input:checked')?.value
           else data[f.label] = i.value.trim()
-          // data[f.label] = f.type === "checkbox" ? i.checked : f.type === "counter" ? i.count : f.type === "number" ? (i.value === "" ? "" : Number(i.value)) : i.value.trim()
         }
         await p(tx("records", "readwrite").add({ ts: new Date().toISOString(), form: cur().name, lat: c.latitude, lon: c.longitude, acc: c.accuracy, alt: c.altitude, data }));
         for (const f of fields) {
@@ -833,9 +855,26 @@
 
     /* ---------- navigation + startup ---------- */
     function show(v) {
+      // navigates between the different tabs
       document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-current", b.dataset.v === v));
-      if (v === "log") { startGps(); renderLog() }
-      else { stopGps(); ({ records: renderRecords, form: renderForm, export: renderExport })[v]() }
+      // assign the view a class according to the current tab so we can style them differently
+      $("#view").className = v;
+      if (v === "log") { 
+        // view log tab, start up the gps tracking and render page
+        startGps(); 
+        renderLog() 
+      }
+      else { 
+        // if not on log, turn off gps to save power
+        stopGps(); 
+        ({ 
+          // this syntax is an alternative to if else branches
+          // it sets up a object that maps to what function to call, then indexes w v and calls it
+          records: renderRecords, 
+          form: renderForm, 
+          export: renderExport 
+        })[v]() 
+      }
       scrollTo(0, 0)
     }
     (async () => {
