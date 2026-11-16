@@ -1,5 +1,12 @@
-const V = "pointlog-v1";
-const FILES = ["./", "index.html", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
+const V = "geologger-v1";
+const FILES = [
+  "./", 
+  "index.html", 
+  "manifest.webmanifest", 
+  "resources/icon-180.png", 
+  "resources/icon-192.png", 
+  "resources/icon-512.png"
+];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

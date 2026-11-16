@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="PointLog">
+<meta name="apple-mobile-web-app-title" content="geologger">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#c2410c">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icon-180.png">
-<title>PointLog</title>
+<link rel="apple-touch-icon" href="resources/icon-180.png">
+<title>geologger</title>
 <style>
 :root{--bg:#edf1f3;--card:#fff;--text:#1b2a33;--muted:#566873;--line:#d3dbe0;--accent:#c2410c;--on-accent:#fff;--good:#1a7f4b;--warn:#b7791f;--bad:#b42318;--danger:#b42318;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px)}
 @media (prefers-color-scheme:dark){:root{--bg:#12181c;--card:#1b242a;--text:#e6ecef;--muted:#93a3ad;--line:#2e3b43;--accent:#ff8a4c;--on-accent:#2a1405;--good:#4ade80;--warn:#fbbf24;--bad:#f97066;--danger:#f97066;color-scheme:dark}}
@@ -64,7 +64,7 @@ nav button[aria-current=true]{color:var(--accent);font-weight:700;box-shadow:ins
 </style>
 </head>
 <body>
-<header><h1>PointLog</h1><span id="count"></span></header>
+<header><h1>geologger</h1><span id="count"></span></header>
 <main id="view"></main>
 <nav>
 <button data-v="log">Log</button>
@@ -161,7 +161,7 @@ async function logPoint(){
     toast("Logged, ±"+Math.round(c.accuracy)+" m");
     await updateCount();renderLog();
   }catch(e){
-    toast(e&&e.code===1?"Location is blocked for PointLog.":"No GPS fix yet. Try again with a clear view of the sky.");
+    toast(e&&e.code===1?"Location is blocked for geologger.":"No GPS fix yet. Try again with a clear view of the sky.");
     b.disabled=false;b.textContent="Log point"}}
 
 /* ---------- Points view ---------- */
@@ -221,12 +221,12 @@ async function exportFile(kind){
     const q=v=>{v=v==null?"":String(v);return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v};
     const rows=[["timestamp","form","latitude","longitude","accuracy_m","altitude_m",...labels],
       ...rs.map(r=>[r.ts,r.form,r.lat,r.lon,r.acc,r.alt,...labels.map(l=>r.data[l])])];
-    text="\ufeff"+rows.map(r=>r.map(q).join(",")).join("\r\n");name="pointlog-"+day+".csv";type="text/csv"}
+    text="\ufeff"+rows.map(r=>r.map(q).join(",")).join("\r\n");name="geologger-"+day+".csv";type="text/csv"}
   else{
     text=JSON.stringify({type:"FeatureCollection",features:rs.map(r=>({type:"Feature",
       geometry:{type:"Point",coordinates:r.alt!=null?[r.lon,r.lat,r.alt]:[r.lon,r.lat]},
       properties:{timestamp:r.ts,form:r.form,accuracy_m:r.acc,...r.data}}))},null,2);
-    name="pointlog-"+day+".geojson";type="application/json"}
+    name="geologgger-"+day+".geojson";type="application/json"}
   await deliver(text,name,type)}
 async function deliver(text,name,type){
   const file=new File([text],name,{type});
@@ -236,20 +236,20 @@ async function deliver(text,name,type){
   document.body.append(a);a.click();a.remove()}
 function backupForms(){
   const day=new Date().toISOString().slice(0,10);
-  deliver(JSON.stringify({pointlog:"forms",version:1,list:forms.list},null,2),"pointlog-forms-"+day+".json","application/json")}
+  deliver(JSON.stringify({geologger:"forms",version:1,list:forms.list},null,2),"geologger-forms-"+day+".json","application/json")}
 function restoreForms(){
   const inp=el("input",{type:"file",accept:"application/json,.json",style:"display:none"});
   document.body.append(inp);
   inp.addEventListener("change",async()=>{
     try{
       const d=JSON.parse(await inp.files[0].text());
-      if(d.pointlog!=="forms"||!Array.isArray(d.list)||!d.list.length)throw 0;
+      if(d.geologger!=="forms"||!Array.isArray(d.list)||!d.list.length)throw 0;
       for(const f of d.list){
         let name=String(f.name||"Restored form");
         while(forms.list.some(x=>x.name===name))name+=" (restored)";
         forms.list.push({id:uid(),name,fields:(Array.isArray(f.fields)?f.fields:[]).map(x=>({id:uid(),label:String(x.label||"Untitled"),type:TYPES[x.type]?x.type:"text",options:Array.isArray(x.options)?x.options.map(String):[]}))})}
       await saveFields();toast("Restored "+d.list.length+(d.list.length===1?" form":" forms"));renderExport();
-    }catch(e){toast("That file isn’t a PointLog form backup.")}
+    }catch(e){toast("That file isn’t a geologger form backup.")}
     inp.remove()});
   inp.click()}
 async function renderExport(){
