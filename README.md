@@ -1,7 +1,14 @@
-yoooo
-
 TODO
 reformat index.html
-record ts in UTC and in local tz?
-test value persisting (and test in general)
+    comment and understand JS
+radio buttons 
+- done?
 improve landscape layout
+- make fields more widgetlike?
+- divide landscape form into two or three divs
+test value persisting (and test in general)
+
+down the line
+- host data online
+- map view
+- shared forms

@@ -369,6 +369,9 @@
         transition: none
       }
     }
+
+    .radio-button label { display:flex; align-items:center; gap:3px; padding:2px 0 }
+    .radio-button input { width:24px; height:24px; accent-color:var(--accent) }
   </style>
 </head>
 
@@ -386,7 +389,10 @@
   <div id="toast" role="status"></div>
   <script>
     "use strict";
+    // sets up shorthand functions for querying html doc
     const $ = s => document.querySelector(s);
+    // shorthand function for creating html attributes
+    // tag = html tag type, attributes as dict to add to tag, any additional args are children of the element
     const el = (tag, attrs = {}, ...kids) => {
       const e = document.createElement(tag);
       for (const [k, v] of Object.entries(attrs)) {
@@ -397,9 +403,14 @@
       }
       e.append(...kids.flat().filter(c => c != null && c !== false)); return e
     };
+
+    // function to reload the screen when switching tabs 
+    // .filter(Boolean) is shorthand for removing any 'falsy' values from array
     const mount = (...n) => $("#view").replaceChildren(...n.flat().filter(Boolean));
+    // function to create a unique id for elements or for database stuff
     const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     let tt; 
+    // function to create popup 'toast' messages
     const toast = m => { 
       const t = $("#toast"); 
       t.textContent = m; 
@@ -432,7 +443,16 @@
     };
 
     /* ---------- state ---------- */
-    const TYPES = { text: "Short text", note: "Long note", number: "Number", choice: "Dropdown list", counter: "Counter", checkbox: "Yes / no" };
+    const TYPES = { 
+      counter: "Counter", 
+      choice: "Dropdown list", 
+      checkbox: "Checkbox",
+      radio: "Radio Buttons",
+      number: "Number", 
+      text: "Short text", 
+      note: "Long note", 
+    };
+    const DEBUG = true;
     let forms = null, fields = [], inputs = {}, kept ={}, fix = null, watchId = null, gpsMsg = "Searching for GPS…";
 
     /* ---------- GPS ---------- */
@@ -446,8 +466,8 @@
           paintGps() 
         },
         e => { 
-          errTxt = "Location is blocked. Allow it in Settings › Privacy & Security › Location Services."
-          gpsMsg = e.code === 1 ? errTxt : "Searching for GPS…";
+          let errTxt = "Location is blocked. Allow it in Settings › Privacy & Security › Location Services."
+          gpsMsg = e.code === 1 ? errTxt : "Searching for GPS… (" + e.code + ": " + e.message + ")";;
           paintGps() 
         },
         { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 }
@@ -479,27 +499,27 @@
 
     /* ---------- Log view ---------- */
     function fieldInput(f) {
+      // creates a input area for the custom field on the Log view
       let i;
+      // long note
       if (f.type === "note") i = el("textarea", { rows: "3" });
       else if (f.type === "number") i = el("input", { type: "number", inputmode: "decimal", step: "any" });
       else if (f.type === "checkbox") i = el("input", { type: "checkbox" });
       else if (f.type === "counter") {
-        i = el("div", { class: "counter" }); i.count = 0; // if input behavior is retain update this
+        i = el("div", { class: "counter" }); i.count = 0;
         const out = el("output", { "aria-live": "polite" }, "0");
+        // func to set the value of the counter display, prevent negative numbers
         const set = n => { i.count = Math.max(0, n); out.textContent = i.count };
         i.append(
-          el(
-            "button", 
-            { 
+          // + and - buttons for counter
+          el("button", { 
               type: "button", class: "cminus", "aria-label": "Subtract one", 
               onclick: () => set(i.count - 1) 
             }, 
             "−"
           ),
           out,
-          el(
-            "button", 
-            { 
+          el("button", { 
               type: "button", class: "cplus", "aria-label": "Add one", 
               onclick: () => set(i.count + 1) 
             }, 
@@ -507,9 +527,38 @@
           )
         )
       }
-      else if (f.type === "choice") i = el("select", {}, el("option", { value: "" }, "—"), ...(f.options || []).map(o => el("option", { value: o }, o)));
+      // dropdown choice
+      else if (f.type === "choice") i = el(
+        "select", {}, 
+        // null option
+        el("option", { value: "" }, "—"), 
+        // unpack opitions as option elements
+        ...(f.options || []).map(o => el("option", { value: o }, o))
+      )
+      else if (f.type === "radio") {
+        i = el("div", {"class": "radio-button"},
+          // flatMap allows you to output multiple items per item in input array
+          // then it flattens them into a 1d array
+          ...(f.options || []).map((o, n) => 
+            // do i need to assign checked?
+            el("label", {},
+              el("input", {
+                "type": "radio", 
+                "name": "radio-"+f.id, 
+                "value": o, 
+                // this fancy syntax will add the attribute "checked" only if n = 1
+                ...(n===0 && {"checked":""})
+              }),
+              o
+            )
+          )
+        );
+
+      }
+      // short text
       else i = el("input", { type: "text" });
       inputs[f.id] = i;
+      // restore kept values from previous Log event
       if (f.id in kept) {
         const v = kept[f.id];
         if (f.type === "checkbox") i.checked=v;
@@ -517,45 +566,76 @@
           i.count=v;
           i.querySelector("output").textContent=v
         }
+        else if (f.type === "radio") {
+          // click on same one
+          i.querySelectorAll("input").forEach(x => x.checked = (x.value === v));
+        }
         else i.value=v;
       }
-      return el(f.type === "counter" ? "div" : "label", { class: f.type === "checkbox" ? "field check" : "field" }, el("span", {}, f.label), i)
+      return el(
+        f.type === "counter" || f.type === "radio" ? "div" : "label", 
+        { class: f.type === "checkbox" ? "field check" : "field" }, 
+        el("span", {}, f.label), 
+        i
+      )
     }
     function formPicker(after) {
-      const s = el("select", { "aria-label": "Form" }, forms.list.map(f => el("option", { value: f.id }, f.name)));
+      // dropdown to select which form we are viewing or editing
+      // what does after do? my guess is it calls it as a function first
+      const s = el("select", { "aria-label": "Form", "name":"formpicker" }, forms.list.map(f => el("option", { value: f.id }, f.name)));
       s.value = forms.active;
       s.addEventListener("change", () => { forms.active = s.value; fields = cur().fields; saveFields(); after() });
       return el("label", { class: "field" }, el("span", {}, "Form"), s)
     }
     function renderLog() {
+      // renders the 'Log' tab
       inputs = {};
-      mount(el("div", { id: "gps", class: "gps" }, gpsMsg), forms.list.length > 1 ? formPicker(renderLog) : null, ...fields.map(fieldInput),
-        el("button", { id: "logbtn", class: "btn", onclick: logPoint }, "Log"));
+      mount(
+        // gps info bar
+        el("div", { id: "gps", class: "gps" }, gpsMsg), 
+        // option to switch between different forms
+        forms.list.length > 1 ? formPicker(renderLog) : null, 
+        // populates the field inputs
+        ...fields.map(fieldInput),
+        // button to save data w location
+        el("button", { id: "logbtn", class: "btn", onclick: logPoint }, "Log")
+      );
       paintGps()
     }
     async function logPoint() {
+      // inserts the data on the active form into the db
+      // TODO radio button needs some special logic probs
+      // TODO allow log w poor gps for debugging
       const b = $("#logbtn"); b.disabled = true;
+
       try {
         if (!fix || Date.now() - fix.timestamp > 15000) {
           b.textContent = "Getting GPS fix…";
           fix = await new Promise((ok, no) => navigator.geolocation.getCurrentPosition(ok, no, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }))
         }
         const c = fix.coords, data = {};
+        // collect data from fields
         for (const f of fields) {
           const i = inputs[f.id];
-          data[f.label] = f.type === "checkbox" ? i.checked : f.type === "counter" ? i.count : f.type === "number" ? (i.value === "" ? "" : Number(i.value)) : i.value.trim()
+          if (f.type === "checkbox") data[f.label] = i.checked
+          else if (f.type === "counter") data[f.label] = i.count
+          else if (f.type === "number") data[f.label] = (i.value === "" ? "" : Number(i.value))
+          else if (f.type === "radio") data[f.label] = i.querySelector('input:checked')?.value
+          else data[f.label] = i.value.trim()
+          // data[f.label] = f.type === "checkbox" ? i.checked : f.type === "counter" ? i.count : f.type === "number" ? (i.value === "" ? "" : Number(i.value)) : i.value.trim()
         }
         await p(tx("records", "readwrite").add({ ts: new Date().toISOString(), form: cur().name, lat: c.latitude, lon: c.longitude, acc: c.accuracy, alt: c.altitude, data }));
-        await p(tx("meta","readwrite").put(kept,"kept")) // add kept fields to db
         for (const f of fields) {
           if (f.keep) kept[f.id] = data[f.label];
           else delete kept[f.id];
         }
+        await p(tx("meta","readwrite").put(kept,"kept")) // add kept fields to db
         toast("Logged, ±" + Math.round(c.accuracy) + " m");
         await updateCount(); renderLog();
       } catch (e) {
         toast(e && e.code === 1 ? "Location is blocked for geologger." : "No GPS fix yet. Try again with a clear view of the sky.");
-        b.disabled = false; b.textContent = "Log point"
+        console.log(e);
+        b.disabled = false; b.textContent = "Log"
       }
     }
 
@@ -603,22 +683,47 @@
       renderForm()
     }
     function renderForm() {
-      mount(formPicker(renderForm),
+      mount(
+        formPicker(renderForm),
+        // creates the area to select which form we are altering or create a new one
         el("div", {},
           el("button", { class: "link", onclick: newForm }, "New form"),
           el("button", { class: "link", onclick: renameForm }, "Rename"),
-          forms.list.length > 1 ? el("button", { class: "link danger", onclick: deleteForm }, "Delete form") : null),
+          // add a delete form button only if there are multiple forms
+          forms.list.length > 1 ? el("button", { class: "link danger", onclick: deleteForm }, "Delete form") : null
+        ),
         el("p", { class: "hint" }, "Choose what you record with each point. Saved points keep the field names they were logged with."),
+        // map the existing fields for this form to their saved settings on the Fields tab
         fields.map((f, n) => {
+          // field name
           const lab = el("input", { type: "text", value: f.label, "aria-label": "Field name" });
           lab.addEventListener("change", () => { f.label = lab.value.trim() || "Untitled"; saveFields() });
-          const sel = el("select", { "aria-label": "Field type" }, Object.entries(TYPES).map(([k, t]) => el("option", { value: k }, t)));
+          // drop down selector to select field type
+          const sel = el(
+            "select",
+            { "aria-label": "Field type" }, 
+            Object.entries(TYPES).map(([k, t]) => el("option", { value: k }, t))
+          );
           sel.value = f.type;
-          sel.addEventListener("change", () => { f.type = sel.value; saveFields(); renderForm() });
+          sel.addEventListener("change", () => { 
+            f.type = sel.value; 
+            saveFields(); 
+            renderForm() 
+          });
           let opt = null;
-          if (f.type === "choice") {
-            opt = el("input", { type: "text", value: (f.options || []).join(", "), placeholder: "Dropdown options, separated by commas", "aria-label": "Choices" });
-            opt.addEventListener("change", () => { f.options = opt.value.split(",").map(s => s.trim()).filter(Boolean); saveFields() })
+          // for dropdown field types, store the values of the options as an array
+          if (f.type === "choice" || f.type === "radio") {
+            let placeholderStr = TYPES[f.type] + ', separated by commas'
+            // display in input
+            opt = el(
+              "input", 
+              { type: "text", value: (f.options || []).join(", "), placeholder: placeholderStr, "aria-label": "Choices" }
+            );
+            // store on object
+            opt.addEventListener("change", () => { 
+              f.options = opt.value.split(",").map(s => s.trim()).filter(Boolean); 
+              saveFields() 
+            })
           }
           const keepBox = el("input", {type: "checkbox"});
           keepBox.checked = !!f.keep;
@@ -644,7 +749,15 @@
             )
           )
         }),
-        el("button", { class: "btn secondary", onclick: () => { fields.push({ id: uid(), label: "New field", type: "text" }); saveFields(); renderForm() } }, "Add field"))
+        el(
+          "button", 
+          { class: "btn secondary", onclick: () => { 
+            fields.push({ id: uid(), label: "New field", type: "text" }); 
+            saveFields(); 
+            renderForm(); 
+          } }, 
+          "Add field")
+      )
     }
 
     /* ---------- Export view ---------- */
@@ -667,7 +780,7 @@
             properties: { timestamp: r.ts, form: r.form, accuracy_m: r.acc, ...r.data }
           }))
         }, null, 2);
-        name = "geologgger-" + day + ".geojson"; type = "application/json"
+        name = "geologger-" + day + ".geojson"; type = "application/json"
       }
       await deliver(text, name, type)
     }
