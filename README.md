@@ -1,14 +1,13 @@
 TODO
-why does it not like my gps only sometimes on pc? does it happen on phone too?
-figure out how to tunnel to test current version on phone
-reformat index.html
+
+- figure out how to tunnel to test current version on phone
+- reformat index.html
     comment and understand JS
-radio buttons 
-- done?
-improve landscape layout
-- make fields more widgetlike?
-- divide landscape form into two or three divs
-test value persisting (and test in general)
+- fix the formPicker situation. 
+    since it is global it can just call show() if we track what tab were on, 
+    then you dont need the after() callback
+
+- filter data on export by form? same on points view?
 
 down the line
 - host data online

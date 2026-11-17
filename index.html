@@ -97,13 +97,14 @@
       border: 1.5px solid var(--line);
       border-left: 10px solid var(--line);
       border-radius: 10px;
-      padding: 12px 14px;
-      margin-bottom: 18px;
+      padding: 6px 7px;
+      margin-bottom: 9px;
       display: flex;
       flex-wrap: wrap;
       gap: 2px 14px;
       align-items: baseline;
-      color: var(--muted)
+      color: var(--muted);
+      font-size: .9rem
     }
 
     .gps strong {
@@ -142,11 +143,20 @@
 
     input[type=text],
     input[type=number],
-    select,
+    main select, /* only select selects that are in the body, ie not the header */
     textarea {
       width: 100%;
       font: inherit;
       padding: 12px;
+      border: 1.5px solid var(--line);
+      border-radius: 8px;
+      background: var(--card);
+      color: var(--text)
+    }
+    header select {
+      /* width: 100%; */
+      font: inherit;
+      /* padding: 12px; */
       border: 1.5px solid var(--line);
       border-radius: 8px;
       background: var(--card);
@@ -376,21 +386,43 @@
         padding-left: calc(18px + env(safe-area-inset-left,0px));
         padding-right: calc(18px + env(safe-area-inset-right,0px))
       }
-      /* this styles the Log tab specifically so that the fields fill up two columns while in landscape */
+      
+      /* create two columns */
       #view.log {
-        display:grid;
-        grid-template-columns:1fr 1fr;
-        gap:0 18px;
-        align-items:start
+        column-count:2;
+        column-gap:18px
       }
-      /* this keeps the gps bar and the log button independent of the columns */
-      #view.log #gps,#view.log #logbtn {
-        grid-column:1 / -1
+      /* allows the gps bar and the log button to stretch across columns */
+      /* #view.log #gps,#view.log #logbtn {
+        column-span:all
+      } */
+      /* avoids long fields eg radio buttons from splitting across columns */
+      #view.log .field{
+        break-inside:avoid
       }
+      /* removes padding on left and right */
       nav {
         padding-left:env(safe-area-inset-left,0px);
         padding-right:env(safe-area-inset-right,0px)
       }
+      /* moves the nav bar to the left, reclaiming vertical space */
+      nav{
+        top:0;
+        bottom:0;
+        right:auto;
+        width:auto;
+        flex-direction:column;
+        border-top:0;
+        border-right:1px solid var(--line)
+      }
+      nav button { 
+        padding:14px 12px;
+        font-size:.85rem
+      }
+      /* hides the header in landscape */
+      header { display: none }
+      /* keeps the main content out of the nav bar on left */
+      main{padding-bottom:12px;margin-left:80px}
     }
 
     .radio-button label { display:flex; align-items:center; gap:3px; padding:2px 0 }
@@ -400,7 +432,9 @@
 
 <body>
   <header>
-    <h1>geologger</h1><span id="count"></span>
+    <h1>geologger</h1>
+    <span id="form-picker-box">Form:</span><select id="form-picker" aria-label="Active form"></select>
+    <span id="count"></span>
   </header>
   <main id="view"></main>
   <nav>
@@ -513,8 +547,8 @@
       g.className = "gps " + (acc <= 10 ? "good" : acc <= 30 ? "ok" : "poor");
       g.replaceChildren(
         el("strong", {}, "±" + acc + " m"), 
-        el("span", { class: "coords" }, c.latitude.toFixed(6) + ", " + c.longitude.toFixed(6)), 
-        el("span", {}, age < 2 ? "just now" : age + " s ago")
+        el("span", { class: "coords" }, c.latitude.toFixed(4) + ", " + c.longitude.toFixed(4)), 
+        el("span", {}, age < 2 ? "just now" : age > 60 ? Math.round(age/60*100)/100 + " m ago" : age + " s ago")
       )
     }
     setInterval(paintGps, 1000);
@@ -604,20 +638,32 @@
     }
     function formPicker(after) {
       // dropdown to select which form we are viewing or editing
-      // what does after do? my guess is it calls it as a function first
-      const s = el("select", { "aria-label": "Form", "name":"formpicker" }, forms.list.map(f => el("option", { value: f.id }, f.name)));
-      s.value = forms.active;
-      s.addEventListener("change", () => { forms.active = s.value; fields = cur().fields; saveFields(); after() });
-      return el("label", { class: "field" }, el("span", {}, "Form"), s)
+      // moved to header
+      // after is function that gets called when the selected form on this view is changed
+      let sel = $("#form-picker")
+      sel.remove() // delete node to prevent eventListeners from stacking TODO this is a dumb work around
+      $("#form-picker-box").append(el("select", {"id": "form-picker"},
+        ...forms.list.map(f => el("option", { value: f.id }, f.name))
+      ))
+      sel = $("#form-picker")
+      sel.value = forms.active;
+      sel.addEventListener("change", () => { 
+        forms.active = sel.value; 
+        fields = cur().fields; 
+        saveFields(); 
+        after() 
+      });
+      // return el("label", { class: "field" }, el("span", {}, "Form"), s)
     }
     function renderLog() {
       // renders the 'Log' tab
       inputs = {};
+      formPicker(renderLog); // update form-picker in header to run this function (and update the Log tab) when form is changed
       mount(
         // gps info bar
         el("div", { id: "gps", class: "gps" }, gpsMsg), 
         // option to switch between different forms
-        forms.list.length > 1 ? formPicker(renderLog) : null, 
+        // forms.list.length > 1 ? formPicker(renderLog) : null, 
         // populates the field inputs
         ...fields.map(fieldInput),
         // button to save data w location
@@ -663,6 +709,8 @@
 
     /* ---------- Points view ---------- */
     async function renderRecords() {
+      // renders the points tab
+      formPicker(() => {console.log('WHADDDDDUP')}) // pass no-op function as callback, switching forms does nothing on this tab
       const rs = (await p(tx("records").getAll())).reverse();
       mount(rs.length ? null : el("p", { class: "empty" }, "No points yet. Open Log and tap Log point."),
         rs.map(r => el("article", { class: "rec" },
@@ -705,8 +753,9 @@
       renderForm()
     }
     function renderForm() {
+      formPicker(renderForm) // update formpicker in header to run this func when form is changed
       mount(
-        formPicker(renderForm),
+        // formPicker(renderForm),
         // creates the area to select which form we are altering or create a new one
         el("div", {},
           el("button", { class: "link", onclick: newForm }, "New form"),
@@ -843,6 +892,8 @@
       inp.click()
     }
     async function renderExport() {
+      // render the export tab
+      formPicker(() => {console.log("YOOOOOOOOOO")}) // update formPicker to do nothing when changed here
       const n = await p(tx("records").count());
       mount(el("p", { class: "hint" }, n + (n === 1 ? " point is" : " points are") + " stored on this phone. Export regularly: clearing Safari data or deleting the app erases them."),
         el("button", { class: "btn", onclick: () => exportFile("csv") }, "Export CSV"),
