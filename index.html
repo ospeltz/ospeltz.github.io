@@ -447,7 +447,8 @@
   <script>
     "use strict";
     // sets up shorthand functions for querying html doc
-    const $ = s => document.querySelector(s);
+    const $ = (s) => document.querySelector(s);
+
     // shorthand function for creating html attributes
     // tag = html tag type, attributes as dict to add to tag, any additional args are children of the element
     const el = (tag, attrs = {}, ...kids) => {
@@ -461,16 +462,18 @@
       e.append(...kids.flat().filter(c => c != null && c !== false)); return e
     };
 
-    // function to reload the screen when switching tabs 
+    // helper function to reload the screen when switching tabs 
     // .filter(Boolean) is shorthand for removing any 'falsy' values from array
     const mount = (...n) => $("#view").replaceChildren(...n.flat().filter(Boolean));
+
     // function to create a unique id for elements or for database stuff
     const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    let tt; 
+
     // function to create popup 'toast' messages
-    const toast = m => { 
+    let tt; 
+    const toast = (msg) => { 
       const t = $("#toast"); 
-      t.textContent = m; 
+      t.textContent = msg; 
       t.classList.add("on"); 
       clearTimeout(tt); 
       tt = setTimeout(() => t.classList.remove("on"), 2600) 
@@ -478,22 +481,35 @@
 
     /* ---------- storage (IndexedDB) ---------- */
     let db;
+    // open database function returns a promise that accepts two arguments
+    // the ok() function is called if opens successfully, else the no function is handed the error
     const openDb = () => new Promise((ok, no) => {
       const r = indexedDB.open("pointlog", 1);
+      // this runs if the database does not exist yet, or if the version number on the browser (second param in indexedDB.open)
       r.onupgradeneeded = () => { 
         r.result.createObjectStore("records", { keyPath: "id", autoIncrement: true }); 
         r.result.createObjectStore("meta") 
       };
+      // onsuccess globally sets the db
       r.onsuccess = () => { db = r.result; ok() }; 
       r.onerror = () => no(r.error)
     });
+    // shorthand function to transact with db, defaults to readonly, s, a string, is the entity
+    // desired to interact w eg 'forms', 'records', 'meta', replace m w 'readwrite' to add to db
     const tx = (s, m = "readonly") => db.transaction(s, m).objectStore(s);
-    const p = r => new Promise((ok, no) => { 
+    // shorthand function to create a basic promise
+    const p = (r) => new Promise((ok, no) => { 
       r.onsuccess = () => ok(r.result); 
       r.onerror = () => no(r.error) 
     });
+
+    // saves the current forms and their fields to the database
     const saveFields = () => p(tx("meta", "readwrite").put(forms, "forms"));
+
+    // returns the active form from the list of forms
     const cur = () => forms.list.find(f => f.id === forms.active) || forms.list[0];
+
+    // updates the display of how many records are stored
     const updateCount = async () => { 
       const n = await p(tx("records").count()); 
       $("#count").textContent = n + (n === 1 ? " point" : " points") 
@@ -514,15 +530,16 @@
 
     /* ---------- GPS ---------- */
     function startGps() {
+      // tells the browser to start tracking location
       if (!navigator.geolocation) { gpsMsg = "This browser can’t read your location."; return }
       if (watchId != null) return;
       watchId = navigator.geolocation.watchPosition(
-        pos => { 
+        pos => { // success callback function of watchPosistion
           fix = pos; 
           gpsMsg = ""; 
           paintGps() 
         },
-        e => { 
+        e => { // error callback
           let errTxt = "Location is blocked. Allow it in Settings › Privacy & Security › Location Services."
           gpsMsg = e.code === 1 ? errTxt : "Searching for GPS… (" + e.code + ": " + e.message + ")";;
           paintGps() 
@@ -532,11 +549,13 @@
     }
     function stopGps() { 
       if (watchId != null) { 
+        // clears the location tracking to save battery
         navigator.geolocation.clearWatch(watchId); 
         watchId = null 
       }
     }
     function paintGps() {
+      // is called by the browser on an interval to update the gps display
       const g = $("#gps"); if (!g) return;
       if (!fix) { 
         g.className = "gps"; 
@@ -551,7 +570,9 @@
         el("span", {}, age < 2 ? "just now" : age > 60 ? Math.round(age/60*100)/100 + " m ago" : age + " s ago")
       )
     }
+    // this tells the browser to call paintGps every 1 sec, returns an id that can be used to clearInterval()
     setInterval(paintGps, 1000);
+    // restarts location tracking when the app reopens as  precaution
     document.addEventListener("visibilitychange", () => { if (!document.hidden && $("#gps")) { stopGps(); startGps() } });
 
     /* ---------- Log view ---------- */
@@ -653,7 +674,6 @@
         saveFields(); 
         after() 
       });
-      // return el("label", { class: "field" }, el("span", {}, "Form"), s)
     }
     function renderLog() {
       // renders the 'Log' tab
@@ -662,8 +682,6 @@
       mount(
         // gps info bar
         el("div", { id: "gps", class: "gps" }, gpsMsg), 
-        // option to switch between different forms
-        // forms.list.length > 1 ? formPicker(renderLog) : null, 
         // populates the field inputs
         ...fields.map(fieldInput),
         // button to save data w location
@@ -673,14 +691,18 @@
     }
     async function logPoint() {
       // inserts the data on the active form into the db
-      // TODO radio button needs some special logic probs
       // TODO allow log w poor gps for debugging
       const b = $("#logbtn"); b.disabled = true;
 
       try {
         if (!fix || Date.now() - fix.timestamp > 15000) {
+          // location data is stale or unknown
           b.textContent = "Getting GPS fix…";
-          fix = await new Promise((ok, no) => navigator.geolocation.getCurrentPosition(ok, no, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }))
+          // try to get location, this is getCurrentPosition whereas startGps() uses watchPostion
+          // here getCurrentPosition will resolve or reject the promise
+          fix = await new Promise((ok, no) => navigator.geolocation.getCurrentPosition(
+            ok, no, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+          ))
         }
         const c = fix.coords, data = {};
         // collect data from fields
@@ -692,18 +714,31 @@
           else if (f.type === "radio") data[f.label] = i.querySelector('input:checked')?.value
           else data[f.label] = i.value.trim()
         }
-        await p(tx("records", "readwrite").add({ ts: new Date().toISOString(), form: cur().name, lat: c.latitude, lon: c.longitude, acc: c.accuracy, alt: c.altitude, data }));
+        // uses shorthand functions to add to db
+        await p(tx("records", "readwrite").add({ 
+          ts: new Date().toISOString(), 
+          form: cur().name, 
+          lat: c.latitude, 
+          lon: c.longitude, 
+          acc: c.accuracy, 
+          alt: c.altitude, 
+          data 
+        }));
+        // update the working version of the 'kept' fields, values that should persist between logs
         for (const f of fields) {
           if (f.keep) kept[f.id] = data[f.label];
           else delete kept[f.id];
         }
         await p(tx("meta","readwrite").put(kept,"kept")) // add kept fields to db
         toast("Logged, ±" + Math.round(c.accuracy) + " m");
-        await updateCount(); renderLog();
+        await updateCount(); 
+        renderLog(); // reload the Log screen
       } catch (e) {
+        // some error occurred
         toast(e && e.code === 1 ? "Location is blocked for geologger." : "No GPS fix yet. Try again with a clear view of the sky.");
         console.log(e);
-        b.disabled = false; b.textContent = "Log"
+        b.disabled = false; 
+        b.textContent = "Log"
       }
     }
 
@@ -711,26 +746,54 @@
     async function renderRecords() {
       // renders the points tab
       formPicker(() => {console.log('WHADDDDDUP')}) // pass no-op function as callback, switching forms does nothing on this tab
-      const rs = (await p(tx("records").getAll())).reverse();
-      mount(rs.length ? null : el("p", { class: "empty" }, "No points yet. Open Log and tap Log point."),
-        rs.map(r => el("article", { class: "rec" },
-          el("div", { class: "rhead" }, el("time", {}, new Date(r.ts).toLocaleString()),
-            el("button", { class: "link danger", onclick: async () => { if (confirm("Delete this point?")) { await p(tx("records", "readwrite").delete(r.id)); await updateCount(); renderRecords() } } }, "Delete")),
-          r.form ? el("div", { class: "hint" }, r.form) : null,
+      const rs = (await p(tx("records").getAll())).reverse(); // query all forms
+      mount(
+        rs.length ? null : el("p", { class: "empty" }, "No points yet. Open Log and tap Log point."),
+        rs.map(r => el("article", { class: "rec" }, // create display for each record
+          el("div", { class: "rhead" }, 
+            el("time", {}, new Date(r.ts).toLocaleString()),
+            // add delete button
+            el("button", { 
+              class: "link danger", 
+              onclick: async () => { 
+                if (confirm("Delete this point?")) { 
+                  await p(tx("records", "readwrite").delete(r.id)); 
+                  await updateCount(); 
+                  renderRecords() 
+                } 
+              }}, 
+              "Delete"
+            )
+          ),
+          r.form ? el("div", { class: "hint" }, r.form) : null, // skips if no form name on record
           el("div", { class: "coords" }, r.lat.toFixed(6) + ", " + r.lon.toFixed(6) + " (±" + Math.round(r.acc) + " m)"),
-          Object.entries(r.data).filter(([, v]) => v !== "").map(([k, v]) => el("div", { class: "kv" }, el("span", {}, k), v === true ? "yes" : v === false ? "no" : String(v))),
-          el("a", { class: "link", href: "https://maps.apple.com/?ll=" + r.lat + "," + r.lon }, "Open in Maps"))))
+          // iterate thru attached data, 
+          // TODO this filters out values that are empty strings, do i want that?
+          Object.entries(r.data).filter(([, v]) => v !== "").map(
+            ([k, v]) => el("div", { class: "kv" }, el("span", {}, k), String(v)
+          )),
+          // el("a", { class: "link", href: "https://maps.apple.com/?ll=" + r.lat + "," + r.lon }, "Open in Maps") // open in maps link
+        ))
+      )
     }
 
     /* ---------- Fields view ---------- */
     function move(n, d) { 
+      // swaps field at index n up or down d, rerenders and saves to db
       [fields[n], fields[n + d]] = [fields[n + d], fields[n]]; 
       saveFields(); 
       renderForm() 
     }
     function newForm() {
-      const n = (prompt("Name for the new form:") || "").trim(); if (!n) return;
-      const f = { id: uid(), name: n, fields: [{ id: uid(), label: "Note", type: "text" }] };
+      // handler for creating a new form entity
+      const n = (prompt("Name for the new form:") || "").trim(); 
+      if (!n) return;
+      // new form
+      const f = { 
+        id: uid(), 
+        name: n, 
+        fields: [{ id: uid(), label: "Note", type: "text" }] // default field
+      };
       forms.list.push(f); 
       forms.active = f.id; 
       fields = f.fields; 
@@ -738,25 +801,29 @@
       renderForm()
     }
     function renameForm() {
-      const n = (prompt("Rename form:", cur().name) || "").trim(); if (!n) return;
+      // handler to rename active form
+      const n = (prompt("Rename form:", cur().name) || "").trim(); 
+      if (!n) return;
       cur().name = n; 
       saveFields(); 
       renderForm()
     }
     function deleteForm() {
+      // handler to delete current form 
       const c = cur(); 
       if (!confirm("Delete the form “" + c.name + "”? Saved points keep their data.")) return;
-      forms.list = forms.list.filter(f => f !== c); 
+      forms.list = forms.list.filter(f => f !== c); // remove from list
+      // set active to first in list
       forms.active = forms.list[0].id; 
-      fields = cur().fields; 
+      fields = forms.list[0].fields; 
       saveFields(); 
       renderForm()
     }
     function renderForm() {
+      // renders the Fields tab
       formPicker(renderForm) // update formpicker in header to run this func when form is changed
       mount(
-        // formPicker(renderForm),
-        // creates the area to select which form we are altering or create a new one
+        // form level controls, new rename delete
         el("div", {},
           el("button", { class: "link", onclick: newForm }, "New form"),
           el("button", { class: "link", onclick: renameForm }, "Rename"),
@@ -768,7 +835,10 @@
         fields.map((f, n) => {
           // field name
           const lab = el("input", { type: "text", value: f.label, "aria-label": "Field name" });
-          lab.addEventListener("change", () => { f.label = lab.value.trim() || "Untitled"; saveFields() });
+          lab.addEventListener("change", () => { 
+            f.label = lab.value.trim() || "Untitled"; 
+            saveFields() 
+          });
           // drop down selector to select field type
           const sel = el(
             "select",
@@ -785,7 +855,7 @@
           // for dropdown field types, store the values of the options as an array
           if (f.type === "choice" || f.type === "radio") {
             let placeholderStr = TYPES[f.type] + ', separated by commas'
-            // display in input
+            // display in input text
             opt = el(
               "input", 
               { type: "text", value: (f.options || []).join(", "), placeholder: placeholderStr, "aria-label": "Choices" }
@@ -796,10 +866,11 @@
               saveFields() 
             })
           }
+          // checkbox that determines if this fields value is preserved between logs
           const keepBox = el("input", {type: "checkbox"});
           keepBox.checked = !!f.keep;
-          keepBox.addEventListener("change",()=>{
-            f.keep=keepBox.checked;
+          keepBox.addEventListener("change", () => {
+            f.keep = keepBox.checked;
             if (!f.keep) delete kept[f.id];
             saveFields()
           });
@@ -808,8 +879,11 @@
             "div", { class: "frow" }, 
             lab, sel, opt, keepRow, 
             el("div", {},
+              // button to move the field up in the list, is disabled if at top
               el("button", { class: "link", disabled: n === 0, onclick: () => move(n, -1) }, "Move up"),
+              // button to move the field down in the list, is disable if already at bottom
               el("button", { class: "link", disabled: n === fields.length - 1, onclick: () => move(n, 1) }, "Move down"),
+              // delete field button
               el("button", { class: "link danger", 
                 onclick: () => { if (confirm("Remove “" + f.label + "”? Saved points keep their data.")) { 
                   fields.splice(n, 1); 
@@ -820,10 +894,10 @@
             )
           )
         }),
-        el(
+        el( // button to add a new field
           "button", 
           { class: "btn secondary", onclick: () => { 
-            fields.push({ id: uid(), label: "New field", type: "text" }); 
+            fields.push({ id: uid(), label: "New field", type: "text" }); // default new field
             saveFields(); 
             renderForm(); 
           } }, 
@@ -833,75 +907,127 @@
 
     /* ---------- Export view ---------- */
     async function exportFile(kind) {
-      const rs = await p(tx("records").getAll());
-      if (!rs.length) { toast("No points to export yet."); return }
-      const day = new Date().toISOString().slice(0, 10); let text, name, type;
+      // function to run the export
+
+      // get all records
+      const records = await p(tx("records").getAll());
+      if (!records.length) { toast("No points to export yet."); return }
+
+      const day = new Date().toISOString().slice(0, 10); 
+      let text, name, type;
       if (kind === "csv") {
-        const labels = [...new Set(rs.flatMap(r => Object.keys(r.data)))];
-        const q = v => { v = v == null ? "" : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v };
-        const rows = [["timestamp", "form", "latitude", "longitude", "accuracy_m", "altitude_m", ...labels],
-        ...rs.map(r => [r.ts, r.form, r.lat, r.lon, r.acc, r.alt, ...labels.map(l => r.data[l])])];
-        text = "\ufeff" + rows.map(r => r.map(q).join(",")).join("\r\n"); name = "geologger-" + day + ".csv"; type = "text/csv"
-      }
-      else {
+        // all column names
+        const labels = [...new Set(records.flatMap(r => Object.keys(r.data)))];
+        // helper function for cleaning data for csv
+        const q = (v) => { 
+          // replace nulls and undefineds w ""
+          v = v == null ? "" : String(v); 
+          // tests if any quotes or newlines exist, if they do, quotes the whole value, converting quotes to double quotes
+          return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v };
+        const rows = [
+          ["id", "timestamp", "form", "latitude", "longitude", "accuracy_m", "altitude_m", ...labels],
+          ...records.map(r => [r.id, r.ts, r.form, r.lat, r.lon, r.acc, r.alt, ...labels.map(l => r.data[l])])
+        ];
+        // start with a BOM (byte order mark) to indicate encoding is utf8
+        text = "\ufeff" + rows.map(r => r.map(q).join(",")).join("\r\n"); 
+        name = "geologger-" + day + ".csv"; 
+        type = "text/csv"
+      } else { // assumed is json
+        // json doesnt need a BOM
         text = JSON.stringify({
-          type: "FeatureCollection", features: rs.map(r => ({
+          type: "FeatureCollection", features: records.map(r => ({
             type: "Feature",
             geometry: { type: "Point", coordinates: r.alt != null ? [r.lon, r.lat, r.alt] : [r.lon, r.lat] },
-            properties: { timestamp: r.ts, form: r.form, accuracy_m: r.acc, ...r.data }
+            properties: { id: r.id, timestamp: r.ts, form: r.form, accuracy_m: r.acc, ...r.data }
           }))
         }, null, 2);
-        name = "geologger-" + day + ".geojson"; type = "application/json"
+        name = "geologger-" + day + ".geojson"; 
+        type = "application/json";
       }
       await deliver(text, name, type)
     }
     async function deliver(text, name, type) {
+      // interacts wiht the browsers download function to save the data
       const file = new File([text], name, { type });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file] }); return } catch (e) { if (e.name === "AbortError") return }
+        // pulls up the iphone share utility which can allow the user to send it somewhere or save it to files
+        try { 
+          await navigator.share({ files: [file] }); return 
+        } catch (e) { 
+          if (e.name === "AbortError") return 
+        }
       }
+      // if the browser is able to use the 'share' funciton it does taht and returns
+      // if not this will try to download the data
       const a = el("a", { href: URL.createObjectURL(file), download: name });
-      document.body.append(a); a.click(); a.remove()
+      document.body.append(a); 
+      a.click(); 
+      a.remove()
     }
     function backupForms() {
+      // create a backup of all form data including fields
       const day = new Date().toISOString().slice(0, 10);
-      deliver(JSON.stringify({ geologger: "forms", version: 1, list: forms.list }, null, 2), "geologger-forms-" + day + ".json", "application/json")
+      deliver(
+        JSON.stringify({ geologger: "forms", version: 1, list: forms.list }, null, 2), // hmmm hardcoded version 
+        "geologger-forms-" + day + ".json", 
+        "application/json"
+      )
     }
     function restoreForms() {
+      // load forms from json file saved by backupForms
       const inp = el("input", { type: "file", accept: "application/json,.json", style: "display:none" });
       document.body.append(inp);
       inp.addEventListener("change", async () => {
         try {
+          // this seems like a possible buggy area if restoring a form with an existing name
           const d = JSON.parse(await inp.files[0].text());
-          if (d.geologger !== "forms" || !Array.isArray(d.list) || !d.list.length) throw 0;
+          if (d.geologger !== "forms" || !Array.isArray(d.list) || !d.list.length) throw 0; // invalid input
           for (const f of d.list) {
             let name = String(f.name || "Restored form");
+            // make sure imported form name does not match any form names currently in state
             while (forms.list.some(x => x.name === name)) name += " (restored)";
-            forms.list.push({ id: uid(), name, fields: (Array.isArray(f.fields) ? f.fields : []).map(x => ({
-             id: uid(), 
-             label: String(x.label || "Untitled"), 
-             type: TYPES[x.type] ? x.type : "text", 
-             options: Array.isArray(x.options) ? x.options.map(String) : [], 
-             keep:!!x.keep 
-            })) })
+            forms.list.push({ 
+              id: uid(), // do i wanna redo the uid? or keep the old one? prob redo incase it matches an existing one
+              name, 
+              fields: (Array.isArray(f.fields) ? f.fields : []).map(x => ({
+                id: uid(), 
+                label: String(x.label || "Untitled"), 
+                type: TYPES[x.type] ? x.type : "text", 
+                options: Array.isArray(x.options) ? x.options.map(String) : [], 
+                keep:!!x.keep 
+              })) 
+            })
           }
-          await saveFields(); toast("Restored " + d.list.length + (d.list.length === 1 ? " form" : " forms")); renderExport();
-        } catch (e) { toast("That file isn’t a geologger form backup.") }
+          await saveFields(); 
+          toast("Restored " + d.list.length + (d.list.length === 1 ? " form" : " forms")); 
+          renderExport();
+        } catch (e) { 
+          toast("That file isn’t a geologger form backup.") 
+        }
         inp.remove()
       });
       inp.click()
     }
     async function renderExport() {
       // render the export tab
-      formPicker(() => {console.log("YOOOOOOOOOO")}) // update formPicker to do nothing when changed here
+      formPicker(() => {}) // update formPicker to do nothing when changed here
       const n = await p(tx("records").count());
-      mount(el("p", { class: "hint" }, n + (n === 1 ? " point is" : " points are") + " stored on this phone. Export regularly: clearing Safari data or deleting the app erases them."),
+      mount(
+        el("p", { class: "hint" }, n + (n === 1 ? " point is" : " points are") + " stored on this phone. Export regularly: clearing Safari data or deleting the app erases them."),
         el("button", { class: "btn", onclick: () => exportFile("csv") }, "Export CSV"),
         el("button", { class: "btn", onclick: () => exportFile("geojson") }, "Export GeoJSON"),
         el("button", { class: "btn secondary", onclick: backupForms }, "Back up forms"),
         el("button", { class: "btn secondary", onclick: restoreForms }, "Restore forms from backup"),
         el("p", { class: "hint" }, "A form backup holds your field setup only, not your points."),
-        el("button", { class: "btn danger-btn", onclick: async () => { if (n && confirm("Delete all " + n + " points? This can’t be undone.")) { await p(tx("records", "readwrite").clear()); await updateCount(); renderExport() } } }, "Delete all points"))
+        el("button", { 
+          class: "btn danger-btn", 
+          onclick: async () => { if (n && confirm("Delete all " + n + " points? This can’t be undone.")) { 
+            await p(tx("records", "readwrite").clear()); 
+            await updateCount(); 
+            renderExport() 
+          } } }, "Delete all points"
+        )
+      )
     }
 
     /* ---------- navigation + startup ---------- */
@@ -920,29 +1046,44 @@
         stopGps(); 
         ({ 
           // this syntax is an alternative to if else branches
-          // it sets up a object that maps to what function to call, then indexes w v and calls it
+          // it sets up a object that maps to what function to call, then indexes with v and calls it
           records: renderRecords, 
           form: renderForm, 
           export: renderExport 
         })[v]() 
       }
+      // browser function
       scrollTo(0, 0)
     }
+
+    // the 'main' of the webapp, starts when opens
     (async () => {
       await openDb();
+      // setup state variables
       forms = await p(tx("meta").get("forms"));
       if (!forms) {
         const old = await p(tx("meta").get("fields"));
-        const first = { id: uid(), name: "My form", fields: old || [{ id: uid(), label: "Note", type: "text" }] };
-        forms = { active: first.id, list: [first] }; await saveFields()
+        const first = { 
+          id: uid(), 
+          name: "My form", 
+          fields: old || [{ id: uid(), label: "Note", type: "text" }] 
+        };
+        forms = { active: first.id, list: [first] }; 
+        await saveFields()
       }
       fields = cur().fields;
-      kept = await p(tx("meta").get("kept"))||{};
+      kept = await p(tx("meta").get("kept")) || {};
+      // add functionality to nav buttons
+      // any html attribute with data- is ignored by the browser and can be accessed in js by .dataset
       document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => show(b.dataset.v)));
-      await updateCount(); show("log");
+      await updateCount(); 
+      // default to log view
+      show("log");
+      // if the browser is not saving stuff, ask it to
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+      // set up the serviceworker (which saves this apps files to the browser and allows it to work offline)
       if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { });
-    })().catch(e => { $("#view").textContent = "Storage is unavailable: " + e.message });
+    })().catch(e => { $("#view").textContent = "Some big ol error: " + e.message }); // catchall error
   </script>
 </body>
 
