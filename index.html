@@ -242,7 +242,7 @@
     }
 
     #logbtn {
-      padding: 24px;
+      padding: 16px;
       font-size: 1.35rem;
       margin-top: 6px
     }
@@ -402,8 +402,10 @@
       }
       /* removes padding on left and right */
       nav {
-        padding-left:env(safe-area-inset-left,0px);
-        padding-right:env(safe-area-inset-right,0px)
+        /* padding-left:env(safe-area-inset-left,0px);
+        padding-right:env(safe-area-inset-right,0px) */
+        padding-left:0px;
+        padding-right: 0px;
       }
       /* moves the nav bar to the left, reclaiming vertical space */
       nav{
@@ -422,7 +424,10 @@
       /* hides the header in landscape */
       header { display: none }
       /* keeps the main content out of the nav bar on left */
-      main{padding-bottom:12px;margin-left:80px}
+      main{ 
+        padding-bottom: 0px;
+        margin-left: calc(9px + env(safe-area-inset-left,0px));
+      }
     }
 
     .radio-button label { display:flex; align-items:center; gap:3px; padding:2px 0 }
@@ -433,8 +438,9 @@
 <body>
   <header>
     <h1>geologger</h1>
-    <span id="form-picker-box">Form:</span><select id="form-picker" aria-label="Active form"></select>
-    <span id="count"></span>
+    <span id="form-picker-box"><select id="form-picker" aria-label="Active form"></select></span>
+    <!-- hiding the count for now -->
+    <span id="count" hidden="true"></span>
   </header>
   <main id="view"></main>
   <nav>
@@ -1082,7 +1088,12 @@
       // if the browser is not saving stuff, ask it to
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
       // set up the serviceworker (which saves this apps files to the browser and allows it to work offline)
-      if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => { });
+      if (
+        "serviceWorker" in navigator && 
+        !location.hostname.endsWith("trycloudflare.com") && // these lines will prevent the service worker form doing anything while debugging
+        location.hostname !== "localhost"
+      ) 
+        navigator.serviceWorker.register("sw.js").catch(() => { });
     })().catch(e => { $("#view").textContent = "Some big ol error: " + e.message }); // catchall error
   </script>
 </body>
