@@ -430,8 +430,30 @@
       }
     }
 
-    .radio-button label { display:flex; align-items:center; gap:3px; padding:2px 0 }
-    .radio-button input { width:24px; height:24px; accent-color:var(--accent) }
+    .radio-button label { 
+      display: flex; 
+      align-items: center; 
+      gap: 3px; 
+      padding: 2px 0 
+    }
+    .radio-button input { 
+      width: 24px; 
+      height: 24px; 
+      accent-color: var(--accent) 
+    }
+    /* edit record popup */
+    dialog {
+      border: none;
+      border-radius: 8px;
+      padding: 1.5rem;
+      max-width: 400px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+    /* Style the dimmed background overlay */
+    dialog::backdrop {
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(2px);
+    }
   </style>
 </head>
 
@@ -749,6 +771,94 @@
     }
 
     /* ---------- Points view ---------- */
+    function editRecord(rec) {
+      // create a popup to allow the user to edit the rec being viewed
+      console.log(rec)
+      
+      // fields common to every record TODO support timestamp update
+      const toLocalInput = iso => { 
+        console.log('initial date', iso)
+        const d = new Date(iso); 
+        d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); // timezone math from utc 
+        console.log('new date', d.toISOString().slice(0, 19))
+        return d.toISOString().slice(0, 19);  // slice off the z
+      };
+      const basefields = {
+        // [field type, display name, transformation func]
+        ts:  ["datetime-local", "timestamp (local)", (v) => {toLocalInput(v)}],
+        lat: ["number", "lattitude", (v) => {v}],
+        lon: ["number", "longitude", (v) => {v}],
+        acc: ["number", "accuracy", (v) => {v}],
+        alt: ["number", "altitude", (v) => {v}]
+      }
+      // when saving: ts = new Date(input.value).toISOString()
+      
+      const basefielddivs = Object.fromEntries(
+        Object.entries(basefields).map(([k, v]) => [ 
+          k, 
+          el("div", {class: "kv"} , el("span", {}, v[1]), el("input", {"type": v[0], "value": v[2](rec[k])}))
+        ],
+      ))
+      // hacky!
+      basefielddivs.ts = el("div", {class: "kv"} , el("span", {}, "timestamp!"), el("input", {"type": "datetime-local", "step":"1", "value": toLocalInput(rec.ts)}))
+      console.log(basefielddivs)
+      // form specific data fields TODO maintain data type
+      const specificdivs = Object.fromEntries(
+        Object.entries(rec.data).map(([k, v]) => [
+          k,
+          el("div", { class: "kv" }, el("span", {}, k), el("input", {"type":"text", "value":String(v)}))
+        ]
+      ))
+  
+      let d = el("dialog", {}, 
+        el("span", {}, 'Edit Record'),
+        ...Object.values(basefielddivs),
+        ...Object.values(specificdivs),
+        el("button", {class: "btn", onclick: (e) => {
+          const basefields = Object.fromEntries(Object.entries(basefielddivs).map(([k, v]) => [k, v.querySelector("input").value]))
+          basefields.ts = new Date(basefields.ts).toISOString()
+          const datafields = Object.fromEntries(Object.entries(specificdivs).map(([k, v]) => [k, v.querySelector("input").value]))
+          console.log({basefields, basefielddivs})
+          const newrec = {
+            ...rec,
+            ...basefields,
+            data: datafields
+          }
+
+          alterRecord(rec, newrec, d);
+        }}, "save")
+      )
+      console.log("hello")
+      // Close when clicking outside the dialog box
+      d.addEventListener('click', (e) => { if (e.target === d) d.remove() })
+      
+      $("#view").appendChild(d)
+      d.showModal() // open dialog
+    }
+
+    async function alterRecord(rec, newrec, dialog) {
+      // alter the record in the db
+      try {
+        // force data types
+        Object.keys(rec).forEach(k => {
+          if (typeof rec[k] === "boolean") newrec[k] = Boolean(newrec[k])
+          else if (typeof rec[k] === "number") newrec[k] = Number(newrec[k]) // TODO this doesn't throw an error, just gives nan
+        })
+        Object.keys(rec.data).forEach(k => {
+          if (typeof rec.data[k] === "boolean") newrec.data[k] = Boolean(newrec.data[k])
+          else if (typeof rec.data[k] === "number") newrec.data[k] = Number(newrec.data[k])
+        })
+        console.log('updated', newrec)
+        const res = await p(tx("records", "readwrite").put(newrec));
+        console.log(res);
+      } catch (e) {
+        console.log(e);
+        alert("epic fail!!!!")
+      }
+      dialog.remove();
+      renderRecords();
+    }
+
     async function renderRecords() {
       // renders the points tab
       formPicker(() => {console.log('WHADDDDDUP')}) // pass no-op function as callback, switching forms does nothing on this tab
@@ -769,7 +879,11 @@
                 } 
               }}, 
               "Delete"
-            )
+            ),
+            el("button", {
+              class: "link danger",
+              onclick: async () => editRecord(r)
+            }, "Edit")
           ),
           r.form ? el("div", { class: "hint" }, r.form) : null, // skips if no form name on record
           el("div", { class: "coords" }, r.lat.toFixed(6) + ", " + r.lon.toFixed(6) + " (±" + Math.round(r.acc) + " m)"),
