@@ -5,7 +5,8 @@ const FILES = [
   "manifest.webmanifest", 
   "resources/icon-180.png", 
   "resources/icon-192.png", 
-  "resources/icon-512.png"
+  "resources/icon-512.png",
+  "resources/supabase.js"
 ];
 
 self.addEventListener("install", e => {

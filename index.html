@@ -11,6 +11,7 @@
   <meta name="theme-color" content="#c2410c">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="resources/icon-180.png">
+  <script src="resources/supabase.js"></script>
   <title>geologger</title>
   <style>
     :root {
@@ -143,6 +144,7 @@
 
     input[type=text],
     input[type=number],
+    input[type=password],
     main select, /* only select selects that are in the body, ie not the header */
     textarea {
       width: 100%;
@@ -508,10 +510,10 @@
     };
 
     /* ---------- storage (IndexedDB) ---------- */
-    let db;
+    let localDb;
     // open database function returns a promise that accepts two arguments
     // the ok() function is called if opens successfully, else the no function is handed the error
-    const openDb = () => new Promise((ok, no) => {
+    const openLocalDb = () => new Promise((ok, no) => {
       const r = indexedDB.open("pointlog", 1);
       // this runs if the database does not exist yet, or if the version number on the browser (second param in indexedDB.open)
       r.onupgradeneeded = () => { 
@@ -519,17 +521,55 @@
         r.result.createObjectStore("meta") 
       };
       // onsuccess globally sets the db
-      r.onsuccess = () => { db = r.result; ok() }; 
+      r.onsuccess = () => { localDb = r.result; ok() }; 
       r.onerror = () => no(r.error)
     });
-    // shorthand function to transact with db, defaults to readonly, s, a string, is the entity
+    // shorthand function to transact with localdb, defaults to readonly, s, a string, is the entity
     // desired to interact w eg 'forms', 'records', 'meta', replace m w 'readwrite' to add to db
-    const tx = (s, m = "readonly") => db.transaction(s, m).objectStore(s);
+    const tx = (s, m = "readonly") => localDb.transaction(s, m).objectStore(s);
     // shorthand function to create a basic promise
     const p = (r) => new Promise((ok, no) => { 
       r.onsuccess = () => ok(r.result); 
       r.onerror = () => no(r.error) 
     });
+    /* --------- storage (supabase) ------------ */
+    let remoteDb, remoteDbConnected = false;
+    
+    async function signinToSupabase(dburl, email, publickey, password) {
+      // signin to remote db
+      remoteDb = window.supabase.createClient(dburl, publickey);
+      const { error } = await remoteDb.auth.signInWithPassword({ email: email, password: password });
+      if (error) alert(error.message)
+      else {
+        toast("connected to supabase");
+        remoteDbConnected = true;
+        await p(tx("meta", "readwrite").put({dburl, publickey, email}, "supabase"))
+      }
+    }
+    async function connectRemoteDb() {
+      // bring up a dialog to signin to a supabase db
+      let d = el("dialog", {id: "dbsignin"}, 
+        el("label", {for:"dburl"}, "Supabase URL ending in .supabase.co"), 
+        el("input", {type:"text", name: "dburl"}),
+        el("label", {for:"publickey"}, "Supabase publishable key starting with 'sb_publishable_...'"), 
+        el("input", {type:"text", name: "publickey"}),
+        el("label", {for:"username"}, "Supabase db user email"), 
+        el("input", {type:"text", name: "username", autocomplete:"email"}),
+        el("label", {for:"pw"}, "Supabase db user password"), 
+        el("input", {type:"password", name: "pw", autocomplete:"current-password"}),
+        el("button", {class:"btn", onclick: () => {
+          signinToSupabase(
+            $("input[name=dburl]").value, 
+            $("input[name=username]").value, 
+            $("input[name=publickey]").value, 
+            $("input[name=pw]").value
+          );
+          $("#dbsignin").remove();
+        }}, "sign in")
+      )
+      $("#view").appendChild(d)
+      d.showModal() // open dialog
+    }
 
     // saves the current forms and their fields to the database
     const saveFields = () => p(tx("meta", "readwrite").put(forms, "forms"));
@@ -649,9 +689,9 @@
             // do i need to assign checked?
             el("label", {},
               el("input", {
-                "type": "radio", 
-                "name": "radio-"+f.id, 
-                "value": o, 
+                type: "radio", 
+                name: "radio-"+f.id, 
+                value: o, 
                 // this fancy syntax will add the attribute "checked" only if n = 1
                 ...(n===0 && {"checked":""})
               }),
@@ -744,6 +784,7 @@
         }
         // uses shorthand functions to add to db
         await p(tx("records", "readwrite").add({ 
+          uid: crypto.randomUUID(),
           ts: new Date().toISOString(), 
           form: cur().name, 
           lat: c.latitude, 
@@ -785,13 +826,12 @@
       };
       const basefields = {
         // [field type, display name, transformation func]
+        lat: ["number", "lattitude", (v) => v],
+        lon: ["number", "longitude", (v) => v],
+        acc: ["number", "accuracy", (v) => v],
+        alt: ["number", "altitude", (v) => v],
         ts:  ["datetime-local", "timestamp (local)", (v) => {toLocalInput(v)}],
-        lat: ["number", "lattitude", (v) => {v}],
-        lon: ["number", "longitude", (v) => {v}],
-        acc: ["number", "accuracy", (v) => {v}],
-        alt: ["number", "altitude", (v) => {v}]
       }
-      // when saving: ts = new Date(input.value).toISOString()
       
       const basefielddivs = Object.fromEntries(
         Object.entries(basefields).map(([k, v]) => [ 
@@ -824,6 +864,7 @@
             ...basefields,
             data: datafields
           }
+          newrec.synced = false
 
           alterRecord(rec, newrec, d);
         }}, "save")
@@ -1128,12 +1169,38 @@
       });
       inp.click()
     }
+    async function dbSync() {
+      // pushes local logs to the remote database
+
+      const { data: { session } } = await remoteDb.auth.getSession();
+      if (!session) return toast("yer sign is fucked")
+
+      const records = await p(tx("records").getAll())
+      const toSubmit = records.filter(r => !r.synced)
+      console.log(toSubmit.length, "to submit")
+      for (let i = 0; i < toSubmit.length; i += 200) {
+        const chunk = toSubmit.slice(i, i + 200); // do upload in chunks of 200 records
+        const rows = chunk.map(r => ({
+          uid: r.uid ??= crypto.randomUUID(),   // gives older records an id
+          ts: r.ts, form: r.form, lat: r.lat, lon: r.lon, acc: r.acc, alt: r.alt,
+          data: r.data
+        }));
+        const { error } = await remoteDb.from("records").upsert(rows, { onConflict: "uid" });
+        if (error) return toast("Sync failed: " + error.message);
+        const store = tx("records", "readwrite");
+        chunk.forEach(r => store.put({ ...r, synced: true })); // update records in local db to be true
+      }
+      toast('synced')
+    }
     async function renderExport() {
       // render the export tab
       formPicker(() => {}) // update formPicker to do nothing when changed here
       const n = await p(tx("records").count());
       mount(
         el("p", { class: "hint" }, n + (n === 1 ? " point is" : " points are") + " stored on this phone. Export regularly: clearing Safari data or deleting the app erases them."),
+        remoteDbConnected ? 
+        el("button", { class: "btn", onclick: dbSync }, "Sync to supabase DB") :
+          el("button", { class: "btn", onclick: connectRemoteDb }, "Connect supabase DB"),
         el("button", { class: "btn", onclick: () => exportFile("csv") }, "Export CSV"),
         el("button", { class: "btn", onclick: () => exportFile("geojson") }, "Export GeoJSON"),
         el("button", { class: "btn secondary", onclick: backupForms }, "Back up forms"),
@@ -1178,7 +1245,19 @@
 
     // the 'main' of the webapp, starts when opens
     (async () => {
-      await openDb();
+      // connect to local indexedDb
+      await openLocalDb();
+
+      // connect to remote supabase
+      remoteDbConnected = await p(tx("meta").get("supabase")) // if not setup will return undefined
+      
+      if (remoteDbConnected) {
+        // TODO add way to sign in again
+        remoteDb = window.supabase.createClient(remoteDbConnected.dburl, remoteDbConnected.publickey);
+        const { data: { session } } = await remoteDb.auth.getSession();
+        if (!session) alert('sign in has expired')
+      }
+
       // setup state variables
       forms = await p(tx("meta").get("forms"));
       if (!forms) {
@@ -1193,6 +1272,7 @@
       }
       fields = cur().fields;
       kept = await p(tx("meta").get("kept")) || {};
+
       // add functionality to nav buttons
       // any html attribute with data- is ignored by the browser and can be accessed in js by .dataset
       document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => show(b.dataset.v)));
