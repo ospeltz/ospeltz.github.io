@@ -430,10 +430,10 @@
         padding-bottom: 0px;
         margin-left: calc(9px + env(safe-area-inset-left,0px));
       }
-      .landscape-hidden {
-        /* hide fields that have preserved values when in landscape */
+      /* hide fields that have preserved values when in landscape */
+      /* .landscape-hidden {
         display:none 
-      }
+      } */
     }
 
     .radio-button label { 
@@ -536,45 +536,6 @@
       r.onsuccess = () => ok(r.result); 
       r.onerror = () => no(r.error) 
     });
-    /* --------- storage (supabase) ------------ */
-    let remoteDb, remoteDbConnected = false;
-    
-    async function signinToSupabase(dburl, email, publickey, password) {
-      // signin to remote db
-      remoteDb = window.supabase.createClient(dburl, publickey);
-      const { error } = await remoteDb.auth.signInWithPassword({ email: email, password: password });
-      if (error) alert(error.message)
-      else {
-        toast("connected to supabase");
-        remoteDbConnected = true;
-        await p(tx("meta", "readwrite").put({dburl, publickey, email}, "supabase"))
-      }
-    }
-    async function connectRemoteDb() {
-      // bring up a dialog to signin to a supabase db
-      let d = el("dialog", {id: "dbsignin"}, 
-        el("label", {for:"dburl"}, "Supabase URL ending in .supabase.co"), 
-        el("input", {type:"text", name: "dburl"}),
-        el("label", {for:"publickey"}, "Supabase publishable key starting with 'sb_publishable_...'"), 
-        el("input", {type:"text", name: "publickey"}),
-        el("label", {for:"username"}, "Supabase db user email"), 
-        el("input", {type:"text", name: "username", autocomplete:"email"}),
-        el("label", {for:"pw"}, "Supabase db user password"), 
-        el("input", {type:"password", name: "pw", autocomplete:"current-password"}),
-        el("button", {class:"btn", onclick: () => {
-          signinToSupabase(
-            $("input[name=dburl]").value, 
-            $("input[name=username]").value, 
-            $("input[name=publickey]").value, 
-            $("input[name=pw]").value
-          );
-          $("#dbsignin").remove();
-        }}, "sign in")
-      )
-      $("#view").appendChild(d)
-      d.showModal() // open dialog
-    }
-
     // saves the current forms and their fields to the database
     const saveFields = () => p(tx("meta", "readwrite").put(forms, "forms"));
 
@@ -586,6 +547,60 @@
       const n = await p(tx("records").count()); 
       $("#count").textContent = n + (n === 1 ? " point" : " points") 
     };
+
+    /* --------- storage (supabase) ------------ */
+    let remoteDb, remoteDbCfg = false;
+    
+    async function signinToSupabase(dburl, email, publickey, password) {
+      // signin to remote db
+      remoteDb = window.supabase.createClient(dburl, publickey);
+      const { error } = await remoteDb.auth.signInWithPassword({ email: email, password: password });
+      if (error) alert(error.message)
+      else {
+        toast("connected to supabase");
+        remoteDbCfg = {dburl, publickey, email};
+        await p(tx("meta", "readwrite").put({dburl, publickey, email}, "supabase"))
+      }
+    }
+    async function signOutSupabase() {
+      const { error } = await remoteDb.auth.signOut()
+      if (error) alert(error.message)
+      else {
+        toast("signed out");
+        remoteDbCfg = false;
+        await p(tx("meta", "readwrite").delete("supabase"))
+      }
+    }
+    async function connectRemoteDb(config) {
+      // bring up a dialog to signin to a supabase db
+      let d = el("dialog", {id: "dbsignin"}, 
+        el("label", {for:"dburl"}, "Supabase URL ending in .supabase.co"), 
+        el("input", {type:"text", name: "dburl", value: config ? remoteDbCfg.dburl : null}),
+        el("label", {for:"publickey"}, "Supabase publishable key starting with 'sb_publishable_...'"), 
+        el("input", {type:"text", name: "publickey",  value: config ? remoteDbCfg.publickey : null}),
+        el("label", {for:"username"}, "Supabase db user email"), 
+        el("input", {type:"text", name: "username", autocomplete:"email",  value: config ? remoteDbCfg.email : null}),
+        el("label", {for:"pw"}, "Supabase db user password"), 
+        el("input", {type:"password", name: "pw", autocomplete:"current-password"}),
+        el("button", {class:"btn", onclick: () => {
+          signinToSupabase(
+            $("input[name=dburl]").value, 
+            $("input[name=username]").value, 
+            $("input[name=publickey]").value, 
+            $("input[name=pw]").value
+          );
+          renderExport();
+          $("#dbsignin").remove();
+        }}, "sign in"),
+        el("button", {class: "btn secondary", onclick: () => {
+          signOutSupabase();
+          renderExport();
+          $("#dbsignin").remove();
+        }}, "sign out")
+      )
+      $("#view").appendChild(d)
+      d.showModal() // open dialog
+    }
 
     /* ---------- state ---------- */
     const TYPES = { 
@@ -1177,7 +1192,7 @@
       // pushes local logs to the remote database
 
       const { data: { session } } = await remoteDb.auth.getSession();
-      if (!session) return toast("yer sign is fucked")
+      if (!session) return toast("yer sign is fucked") // TODO this aint working on my phone also this should reset the sign in state
 
       const records = await p(tx("records").getAll())
       const toSubmit = records.filter(r => !r.synced)
@@ -1202,9 +1217,11 @@
       const n = await p(tx("records").count());
       mount(
         el("p", { class: "hint" }, n + (n === 1 ? " point is" : " points are") + " stored on this phone. Export regularly: clearing Safari data or deleting the app erases them."),
-        remoteDbConnected ? 
-        el("button", { class: "btn", onclick: dbSync }, "Sync to supabase DB") :
-          el("button", { class: "btn", onclick: connectRemoteDb }, "Connect supabase DB"),
+        remoteDbCfg ? 
+        el("div", {}, 
+          el("button", { class: "btn", onclick: dbSync }, "Sync to supabase DB"),
+          el("button", { class: "btn secondary", onclick: () => connectRemoteDb(true) }, "Alter supabase connection")) :
+          el("button", { class: "btn", onclick: () => connectRemoteDb(false) }, "Connect supabase DB"),
         el("button", { class: "btn", onclick: () => exportFile("csv") }, "Export CSV"),
         el("button", { class: "btn", onclick: () => exportFile("geojson") }, "Export GeoJSON"),
         el("button", { class: "btn secondary", onclick: backupForms }, "Back up forms"),
@@ -1253,11 +1270,11 @@
       await openLocalDb();
 
       // connect to remote supabase
-      remoteDbConnected = await p(tx("meta").get("supabase")) // if not setup will return undefined
+      remoteDbCfg = await p(tx("meta").get("supabase")) // if not setup will return undefined
       
-      if (remoteDbConnected) {
+      if (remoteDbCfg) {
         // TODO add way to sign in again
-        remoteDb = window.supabase.createClient(remoteDbConnected.dburl, remoteDbConnected.publickey);
+        remoteDb = window.supabase.createClient(remoteDbCfg.dburl, remoteDbCfg.publickey);
         const { data: { session } } = await remoteDb.auth.getSession();
         if (!session) alert('sign in has expired')
       }
