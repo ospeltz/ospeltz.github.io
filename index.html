@@ -430,6 +430,10 @@
         padding-bottom: 0px;
         margin-left: calc(9px + env(safe-area-inset-left,0px));
       }
+      .landscape-hidden {
+        /* hide fields that have preserved values when in landscape */
+        display:none 
+      }
     }
 
     .radio-button label { 
@@ -720,7 +724,7 @@
       }
       return el(
         f.type === "counter" || f.type === "radio" ? "div" : "label", 
-        { class: f.type === "checkbox" ? "field check" : "field" }, 
+        { class: f.type === "checkbox" ? "field check" : "field" + (f.id in kept ? " landscape-hidden" : "")}, 
         el("span", {}, f.label), 
         i
       )
