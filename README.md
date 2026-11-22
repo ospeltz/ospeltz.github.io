@@ -4,6 +4,7 @@ TODO
 - dbSync
     how to reflect edits made on db copied to local
     implement edits on local data that is already 'synced'
+    points tab, get data from cloud
 - too much bottom margin in landscape
 - lock scroll on log view when you can
 - minus button on counters on iphone not centered

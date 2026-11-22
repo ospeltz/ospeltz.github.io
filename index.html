@@ -935,6 +935,9 @@
                 if (confirm("Delete this point?")) { 
                   await p(tx("records", "readwrite").delete(r.id)); 
                   await updateCount(); 
+                  console.log(r)
+                  const { error } = await remoteDb.from("records").delete().eq("uid", r.uid)
+                  if (error) alert("failed to delete in cloud: " + error.message)
                   renderRecords() 
                 } 
               }}, 
