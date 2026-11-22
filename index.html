@@ -392,7 +392,11 @@
       /* create two columns */
       #view.log {
         column-count:2;
-        column-gap:18px
+        column-gap:18px;
+        
+      }
+      html body {
+        overflow: hidden; /* lock scroll */
       }
       /* allows the gps bar and the log button to stretch across columns */
       /* #view.log #gps,#view.log #logbtn {
@@ -778,7 +782,6 @@
     }
     async function logPoint() {
       // inserts the data on the active form into the db
-      // TODO allow log w poor gps for debugging
       const b = $("#logbtn"); b.disabled = true;
 
       try {
@@ -835,7 +838,7 @@
       // create a popup to allow the user to edit the rec being viewed
       console.log(rec)
       
-      // fields common to every record TODO support timestamp update
+      // fields common to every record
       const toLocalInput = iso => { 
         console.log('initial date', iso)
         const d = new Date(iso); 
@@ -858,7 +861,7 @@
           el("div", {class: "kv"} , el("span", {}, v[1]), el("input", {"type": v[0], "value": v[2](rec[k])}))
         ],
       ))
-      // hacky!
+      // TODO hacky!
       basefielddivs.ts = el("div", {class: "kv"} , el("span", {}, "timestamp!"), el("input", {"type": "datetime-local", "step":"1", "value": toLocalInput(rec.ts)}))
       console.log(basefielddivs)
       // form specific data fields TODO maintain data type
@@ -950,9 +953,8 @@
           ),
           r.form ? el("div", { class: "hint" }, r.form) : null, // skips if no form name on record
           el("div", { class: "coords" }, r.lat.toFixed(6) + ", " + r.lon.toFixed(6) + " (±" + Math.round(r.acc) + " m)"),
-          // iterate thru attached data, 
-          // TODO this filters out values that are empty strings, do i want that?
-          Object.entries(r.data).filter(([, v]) => v !== "").map(
+          // iterate thru attached data to display
+          Object.entries(r.data).map(
             ([k, v]) => el("div", { class: "kv" }, el("span", {}, k), String(v)
           )),
           // el("a", { class: "link", href: "https://maps.apple.com/?ll=" + r.lat + "," + r.lon }, "Open in Maps") // open in maps link
@@ -1195,7 +1197,7 @@
       // pushes local logs to the remote database
 
       const { data: { session } } = await remoteDb.auth.getSession();
-      if (!session) return toast("yer sign is fucked") // TODO this aint working on my phone also this should reset the sign in state
+      if (!session) return toast("yer sign in is jacked up, go to Export Tab to fix")
 
       const records = await p(tx("records").getAll())
       const toSubmit = records.filter(r => !r.synced)
@@ -1276,10 +1278,9 @@
       remoteDbCfg = await p(tx("meta").get("supabase")) // if not setup will return undefined
       
       if (remoteDbCfg) {
-        // TODO add way to sign in again
         remoteDb = window.supabase.createClient(remoteDbCfg.dburl, remoteDbCfg.publickey);
         const { data: { session } } = await remoteDb.auth.getSession();
-        if (!session) alert('sign in has expired')
+        if (!session) alert('supabase sign in has expired. use Alter db connection to sign in again')
       }
 
       // setup state variables

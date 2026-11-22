@@ -1,20 +1,19 @@
 TODO
 
-- supabase auth. prompt for password if session expires
+- split out css and js files
+- comment and understand css
 - dbSync
     how to reflect edits made on db copied to local
     implement edits on local data that is already 'synced'
     points tab, get data from cloud
-- too much bottom margin in landscape
-- lock scroll on log view when you can
-- minus button on counters on iphone not centered
-- comment and understand css
+- style
+    - too much bottom margin in landscape
+    - minus button on counters on iphone not centered
+- clean up editRecord. enforce datatype conservation better
 - fix the formPicker situation. 
-    since it is global it can just call show() if we track what tab were on, 
-    then you dont need the after() callback
+    - since it is global it can just call show() if we track what tab were on, then you dont need the after() callback
+    - filter data on export by form? same on points view?
 
-- edit screen: all the basefields are not prepopulating
-- filter data on export by form? same on points view?
 
 down the line
 - automatic logs at certain locations
