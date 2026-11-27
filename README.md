@@ -3,16 +3,16 @@ TODO
 - split out css and js files
 - comment and understand css
 - dbSync
-    how to reflect edits made on db copied to local
-    implement edits on local data that is already 'synced'
-    points tab, get data from cloud
+    - more information to user on syncing 
+    - how to reflect edits made on remote db copied to local
+    - points tab, get data from cloud?
 - style
     - too much bottom margin in landscape
+    - style timestamp input on edit screen
     - minus button on counters on iphone not centered
-- clean up editRecord. enforce datatype conservation better
-- fix the formPicker situation. 
-    - since it is global it can just call show() if we track what tab were on, then you dont need the after() callback
-    - filter data on export by form? same on points view?
+    - spacing between inputs and buttons on dialogs
+    - edit screen no focus on input
+    - lock zoom on landscape
 
 
 down the line

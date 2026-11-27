@@ -142,9 +142,19 @@
       margin-bottom: 4px
     }
 
+    .edit-data {
+      border-style: solid;
+      border-radius: 16px;
+      border-color:#585858;
+      border-width: 1px;
+      padding: 10px;
+      margin: 10px;
+    }
+
     input[type=text],
     input[type=number],
     input[type=password],
+    input[type=datetime-local],
     main select, /* only select selects that are in the body, ie not the header */
     textarea {
       width: 100%;
@@ -163,6 +173,11 @@
       border-radius: 8px;
       background: var(--card);
       color: var(--text)
+    }
+    select.edit-field-type {
+      width: auto;
+      float: right;
+      padding: 6px
     }
 
     .field.check {
@@ -557,9 +572,10 @@
     
     async function signinToSupabase(dburl, email, publickey, password) {
       // signin to remote db
-      remoteDb = window.supabase.createClient(dburl, publickey);
+      try { remoteDb = window.supabase.createClient(dburl, publickey); }
+      catch (error) { alert(error); remoteDbCfg = false; renderExport(); }
       const { error } = await remoteDb.auth.signInWithPassword({ email: email, password: password });
-      if (error) alert(error.message)
+      if (error) { alert(error.message); remoteDb = undefined; remoteDbCfg = false; renderExport(); }
       else {
         toast("connected to supabase");
         remoteDbCfg = {dburl, publickey, email};
@@ -572,37 +588,43 @@
       else {
         toast("signed out");
         remoteDbCfg = false;
+        remoteDb = null
         await p(tx("meta", "readwrite").delete("supabase"))
       }
     }
     async function connectRemoteDb(config) {
       // bring up a dialog to signin to a supabase db
       let d = el("dialog", {id: "dbsignin"}, 
-        el("label", {for:"dburl"}, "Supabase URL ending in .supabase.co"), 
-        el("input", {type:"text", name: "dburl", value: config ? remoteDbCfg.dburl : null}),
-        el("label", {for:"publickey"}, "Supabase publishable key starting with 'sb_publishable_...'"), 
-        el("input", {type:"text", name: "publickey",  value: config ? remoteDbCfg.publickey : null}),
-        el("label", {for:"username"}, "Supabase db user email"), 
-        el("input", {type:"text", name: "username", autocomplete:"email",  value: config ? remoteDbCfg.email : null}),
-        el("label", {for:"pw"}, "Supabase db user password"), 
-        el("input", {type:"password", name: "pw", autocomplete:"current-password"}),
-        el("button", {class:"btn", onclick: () => {
-          signinToSupabase(
-            $("input[name=dburl]").value, 
-            $("input[name=username]").value, 
-            $("input[name=publickey]").value, 
-            $("input[name=pw]").value
-          );
-          renderExport();
-          $("#dbsignin").remove();
-        }}, "sign in"),
-        el("button", {class: "btn secondary", onclick: () => {
-          signOutSupabase();
-          renderExport();
-          $("#dbsignin").remove();
-        }}, "sign out")
+        el("form",
+          el("label", {for:"dburl"}, "Supabase URL ending in .supabase.co"), 
+          el("input", {type:"text", name: "dburl", value: config ? remoteDbCfg.dburl : null}),
+          el("label", {for:"publickey"}, "Supabase publishable key starting with 'sb_publishable_...'"), 
+          el("input", {type:"text", name: "publickey",  value: config ? remoteDbCfg.publickey : null}),
+          el("label", {for:"username"}, "Supabase db user email"), 
+          el("input", {type:"text", name: "username", autocomplete:"email",  value: config ? remoteDbCfg.email : null}),
+          el("label", {for:"pw"}, "Supabase db user password"), 
+          el("input", {type:"password", name: "pw", autocomplete:"current-password"}),
+          el("button", {class:"btn", type:"submit", onclick: () => {
+            remoteDbCfg = {} // this will make the call to renderExport render correctly
+            signinToSupabase(
+              $("input[name=dburl]").value, 
+              $("input[name=username]").value, 
+              $("input[name=publickey]").value, 
+              $("input[name=pw]").value
+            );
+            renderExport();
+            $("#dbsignin").remove();
+          }}, "sign in"),
+          el("button", {class: "btn secondary", onclick: () => {
+            remoteDbCfg = false
+            signOutSupabase();
+            renderExport();
+            $("#dbsignin").remove();
+          }}, "sign out")
+        )
       )
       $("#view").appendChild(d)
+      d.addEventListener('click', (e) => { if (e.target === d) d.remove() })
       d.showModal() // open dialog
     }
 
@@ -617,7 +639,7 @@
       note: "Long note", 
     };
     const DEBUG = location.hostname === "localhost";
-    let forms = null, fields = [], inputs = {}, kept ={}, fix = null, watchId = null, gpsMsg = "Searching for GPS…";
+    let forms = null, fields = [], inputs = {}, kept ={}, fix = null, watchId = null, gpsMsg = "Searching for GPS…", currView = "log";
 
     /* ---------- GPS ---------- */
     function startGps() {
@@ -748,28 +770,21 @@
         i
       )
     }
-    function formPicker(after) {
-      // dropdown to select which form we are viewing or editing
-      // moved to header
-      // after is function that gets called when the selected form on this view is changed
-      let sel = $("#form-picker")
-      sel.remove() // delete node to prevent eventListeners from stacking TODO this is a dumb work around
-      $("#form-picker-box").append(el("select", {"id": "form-picker"},
-        ...forms.list.map(f => el("option", { value: f.id }, f.name))
-      ))
-      sel = $("#form-picker")
-      sel.value = forms.active;
-      sel.addEventListener("change", () => { 
-        forms.active = sel.value; 
-        fields = cur().fields; 
-        saveFields(); 
-        after() 
-      });
+    function formPicker(change) {
+      // gets called when the formPicker selection in the header is changed
+      forms.active = change.target.value; 
+      fields = cur().fields; 
+      saveFields();  // TODO should be await?
+      ({
+        log: renderLog,
+        form: renderForm,
+        records: renderRecords,
+        export: renderExport
+      })[currView]()
     }
     function renderLog() {
       // renders the 'Log' tab
       inputs = {};
-      formPicker(renderLog); // update form-picker in header to run this function (and update the Log tab) when form is changed
       mount(
         // gps info bar
         el("div", { id: "gps", class: "gps" }, gpsMsg), 
@@ -836,51 +851,78 @@
     /* ---------- Points view ---------- */
     function editRecord(rec) {
       // create a popup to allow the user to edit the rec being viewed
-      console.log(rec)
       
       // fields common to every record
       const toLocalInput = iso => { 
-        console.log('initial date', iso)
         const d = new Date(iso); 
         d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); // timezone math from utc 
-        console.log('new date', d.toISOString().slice(0, 19))
         return d.toISOString().slice(0, 19);  // slice off the z
       };
       const basefields = {
         // [field type, display name, transformation func]
-        lat: ["number", "lattitude", (v) => v],
-        lon: ["number", "longitude", (v) => v],
-        acc: ["number", "accuracy", (v) => v],
-        alt: ["number", "altitude", (v) => v],
-        ts:  ["datetime-local", "timestamp (local)", (v) => {toLocalInput(v)}],
+        lat: "lattitude",
+        lon: "longitude",
+        acc: "accuracy",
+        alt: "altitude",
       }
       
       const basefielddivs = Object.fromEntries(
         Object.entries(basefields).map(([k, v]) => [ 
           k, 
-          el("div", {class: "kv"} , el("span", {}, v[1]), el("input", {"type": v[0], "value": v[2](rec[k])}))
+          el("div", {class: "kv"} , el("span", {}, v), el("input", {"type": "number", "value": rec[k]}))
         ],
       ))
-      // TODO hacky!
-      basefielddivs.ts = el("div", {class: "kv"} , el("span", {}, "timestamp!"), el("input", {"type": "datetime-local", "step":"1", "value": toLocalInput(rec.ts)}))
-      console.log(basefielddivs)
-      // form specific data fields TODO maintain data type
-      const specificdivs = Object.fromEntries(
-        Object.entries(rec.data).map(([k, v]) => [
-          k,
-          el("div", { class: "kv" }, el("span", {}, k), el("input", {"type":"text", "value":String(v)}))
-        ]
-      ))
+      basefielddivs['ts'] = el("div", {class: "kv"} , 
+        el("span", {}, "timestamp"), el("input", {"type": "datetime-local", "step":"1", "value": toLocalInput(rec.ts)})
+      )
+
+      // form specific data fields
+      function editFieldHtml(k, v) {
+        let inputarea = {
+          string: el("input", {type: "text", value: String(v), id: `data-${k}-value`}),
+          number: el("input", {type: "number", value: v, id: `data-${k}-value`}),
+          boolean: el("input", {type: "checkbox", checked: v, id: `data-${k}-value`, class: "field check"})
+        }
+        return el("div", { class: "kv" }, 
+          el("span", {}, k),
+          el("button", {class: "link danger", style: "float:right", "data-fieldname":k, onclick: (e) => {
+            specificdivs[k].remove();
+            delete specificdivs[k];
+          }}, "Remove"),
+          el("select", {class: 'edit-field-type', name: `data-${k}-type`, onchange: (ch) => {
+            $(`#data-${k}-value`).replaceWith(inputarea[ch.target.value])
+          }}, 
+            ["number", "string", "boolean"].map(e => el("option", {value:e, ...((typeof v)===e ? {selected:""} : {})}, e))
+          ),
+          inputarea[typeof v]
+        )
+      }
+      const specificdivs = Object.fromEntries(Object.entries(rec.data).map(([k, v]) => [k, editFieldHtml(k, v)]))
   
       let d = el("dialog", {}, 
         el("span", {}, 'Edit Record'),
         ...Object.values(basefielddivs),
-        ...Object.values(specificdivs),
+        el("div", {class: "edit-data"},
+          el("span", {}, "Edit custom data"),
+          el("div", {id: "custom-data-edit"}, ...Object.values(specificdivs)),
+          el("button", {class: 'btn secondary', onclick: () => {
+            let name = prompt("field name?")
+            specificdivs[name] = editFieldHtml(name, "")
+            $("#custom-data-edit").appendChild(specificdivs[name])
+          }}, "Add custom field")
+        ),
         el("button", {class: "btn", onclick: (e) => {
-          const basefields = Object.fromEntries(Object.entries(basefielddivs).map(([k, v]) => [k, v.querySelector("input").value]))
-          basefields.ts = new Date(basefields.ts).toISOString()
-          const datafields = Object.fromEntries(Object.entries(specificdivs).map(([k, v]) => [k, v.querySelector("input").value]))
-          console.log({basefields, basefielddivs})
+          // gather current values on form
+          const basefields = Object.fromEntries(Object.entries(basefielddivs).map(([k, v]) => [k, Number(v.querySelector("input").value)]))
+          basefields.ts = new Date(basefielddivs.ts.querySelector("input").value).toISOString()
+          const datafields = Object.fromEntries(Object.entries(specificdivs).map(([k, v]) => {
+            let finalv, dtype = v.querySelector("select.edit-field-type").value;
+            if (dtype === 'string') finalv = String(v.querySelector("input").value)
+            else if (dtype === 'number') finalv = Number(v.querySelector("input").value)
+            else if (dtype === 'boolean') finalv = Boolean(v.querySelector("input").checked)
+
+            return [k, finalv]
+          }))
           const newrec = {
             ...rec,
             ...basefields,
@@ -888,10 +930,9 @@
           }
           newrec.synced = false
 
-          alterRecord(rec, newrec, d);
+          alterRecord(newrec, d);
         }}, "save")
       )
-      console.log("hello")
       // Close when clicking outside the dialog box
       d.addEventListener('click', (e) => { if (e.target === d) d.remove() })
       
@@ -899,19 +940,9 @@
       d.showModal() // open dialog
     }
 
-    async function alterRecord(rec, newrec, dialog) {
+    async function alterRecord(newrec, dialog) {
       // alter the record in the db
       try {
-        // force data types
-        Object.keys(rec).forEach(k => {
-          if (typeof rec[k] === "boolean") newrec[k] = Boolean(newrec[k])
-          else if (typeof rec[k] === "number") newrec[k] = Number(newrec[k]) // TODO this doesn't throw an error, just gives nan
-        })
-        Object.keys(rec.data).forEach(k => {
-          if (typeof rec.data[k] === "boolean") newrec.data[k] = Boolean(newrec.data[k])
-          else if (typeof rec.data[k] === "number") newrec.data[k] = Number(newrec.data[k])
-        })
-        console.log('updated', newrec)
         const res = await p(tx("records", "readwrite").put(newrec));
         console.log(res);
       } catch (e) {
@@ -924,8 +955,8 @@
 
     async function renderRecords() {
       // renders the points tab
-      formPicker(() => {console.log('WHADDDDDUP')}) // pass no-op function as callback, switching forms does nothing on this tab
-      const rs = (await p(tx("records").getAll())).reverse(); // query all forms
+      const rs = (await p(tx("records").getAll())).reverse().filter(r => r.form === cur().name); // filter out records not relating to the selected form
+      
       mount(
         rs.length ? null : el("p", { class: "empty" }, "No points yet. Open Log and tap Log point."),
         rs.map(r => el("article", { class: "rec" }, // create display for each record
@@ -1006,7 +1037,6 @@
     }
     function renderForm() {
       // renders the Fields tab
-      formPicker(renderForm) // update formpicker in header to run this func when form is changed
       mount(
         // form level controls, new rename delete
         el("div", {},
@@ -1201,7 +1231,6 @@
 
       const records = await p(tx("records").getAll())
       const toSubmit = records.filter(r => !r.synced)
-      console.log(toSubmit.length, "to submit")
       for (let i = 0; i < toSubmit.length; i += 200) {
         const chunk = toSubmit.slice(i, i + 200); // do upload in chunks of 200 records
         const rows = chunk.map(r => ({
@@ -1218,14 +1247,13 @@
     }
     async function renderExport() {
       // render the export tab
-      formPicker(() => {}) // update formPicker to do nothing when changed here
       const n = await p(tx("records").count());
       mount(
         el("p", { class: "hint" }, n + (n === 1 ? " point is" : " points are") + " stored on this phone. Export regularly: clearing Safari data or deleting the app erases them."),
         remoteDbCfg ? 
-        el("div", {}, 
-          el("button", { class: "btn", onclick: dbSync }, "Sync to supabase DB"),
-          el("button", { class: "btn secondary", onclick: () => connectRemoteDb(true) }, "Alter supabase connection")) :
+          el("div", {}, 
+            el("button", { class: "btn", onclick: dbSync }, "Sync to supabase DB"),
+            el("button", { class: "btn secondary", onclick: () => connectRemoteDb(true) }, "Alter supabase connection")) :
           el("button", { class: "btn", onclick: () => connectRemoteDb(false) }, "Connect supabase DB"),
         el("button", { class: "btn", onclick: () => exportFile("csv") }, "Export CSV"),
         el("button", { class: "btn", onclick: () => exportFile("geojson") }, "Export GeoJSON"),
@@ -1246,6 +1274,7 @@
     /* ---------- navigation + startup ---------- */
     function show(v) {
       // navigates between the different tabs
+      currView = v;
       document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-current", b.dataset.v === v));
       // assign the view a class according to the current tab so we can style them differently
       $("#view").className = v;
@@ -1286,6 +1315,7 @@
       // setup state variables
       forms = await p(tx("meta").get("forms"));
       if (!forms) {
+        // legacy from initial version which didnt have multiple forms
         const old = await p(tx("meta").get("fields"));
         const first = { 
           id: uid(), 
@@ -1301,7 +1331,13 @@
       // add functionality to nav buttons
       // any html attribute with data- is ignored by the browser and can be accessed in js by .dataset
       document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => show(b.dataset.v)));
-      await updateCount(); 
+      await updateCount();
+
+      // set up form selector TODO do i need the id?
+      $("#form-picker").append( ...forms.list.map(f => el("option", { value: f.id }, f.name)) )
+      $("#form-picker").addEventListener("change", formPicker)
+      $("#form-picker").value = forms.active
+
       // default to log view
       show("log");
       // if the browser is not saving stuff, ask it to
